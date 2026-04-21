@@ -107,3 +107,30 @@ def test_pick_target_cell_picks_highest_pseudotime_in_label():
                            "QC", "Cortex", "Endodermis"])
     idx = pick_target_cell(pseudotime, cell_types, label="Endodermis")
     assert idx == 1, "Highest pseudotime among Endodermis is index 1 (0.9)"
+
+
+from arabidopsis_root_ground_tissue_tmap import fit_tmap_with_pseudotime  # noqa: E402
+
+
+def test_fit_tmap_with_pseudotime_returns_model_and_spearman():
+    rng = np.random.default_rng(0)
+    # Make a ramp: 200 cells whose PCA coords drift linearly along their index.
+    n = 200
+    X_pca = rng.standard_normal((n, 50)).astype(np.float32)
+    X_pca[:, 0] += np.linspace(0, 20, n)  # strong linear signal on axis 0
+    cell_types = np.array(["QC"] * 20 + ["Cortex"] * 100 + ["Endodermis"] * 80)
+    consensus_time = np.linspace(0, 1, n).astype(np.float32)
+
+    model, tmap_pt, spearman = fit_tmap_with_pseudotime(
+        X_pca=X_pca,
+        cell_types=cell_types,
+        consensus_time=consensus_time,
+        seed=42,
+    )
+
+    assert tmap_pt.shape == (n,)
+    assert model.tree_ is not None
+    assert 0.7 < abs(spearman) <= 1.0, (
+        f"With a strong linear PCA signal + correct root in QC cells, the "
+        f"tree pseudotime should correlate with the reference; got {spearman:.3f}"
+    )

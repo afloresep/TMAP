@@ -20,6 +20,9 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+from scipy.stats import spearmanr
+
+from tmap import TMAP
 
 HERE = Path(__file__).parent
 DATA_PATH = HERE / "data" / "shahan_root" / "ground_tissue.h5ad"
@@ -80,6 +83,33 @@ def pick_target_cell(
         raise ValueError(f"No cells with cell_type={label!r}. Available: {unique}")
     pool = np.where(mask)[0]
     return int(pool[np.argmax(pseudotime[pool])])
+
+
+def fit_tmap_with_pseudotime(
+    *,
+    X_pca: NDArray,
+    cell_types: NDArray,
+    consensus_time: NDArray,
+    n_neighbors: int = 30,
+    seed: int = 42,
+) -> tuple[TMAP, NDArray[np.float32], float]:
+    """Fit TMAP on X_pca, root at a QC-centroid cell, return (model, tree pseudotime, Spearman).
+
+    n_neighbors=30 matches the Shahan et al. RunUMAP setting.
+    """
+    model = TMAP(
+        metric="cosine",
+        n_neighbors=n_neighbors,
+        seed=seed,
+        store_index=True,
+    ).fit(X_pca.astype(np.float32, copy=False))
+
+    root = pick_root_cell(X_pca, cell_types, label="QC")
+    tmap_pt = np.asarray(model.distances_from(root), dtype=np.float32)
+
+    finite = np.isfinite(consensus_time) & np.isfinite(tmap_pt)
+    rho = float(spearmanr(tmap_pt[finite], consensus_time[finite]).statistic)
+    return model, tmap_pt, rho
 
 
 def main() -> None:
