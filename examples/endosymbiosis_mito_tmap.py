@@ -190,6 +190,71 @@ def filter_cytosolic(accessions: list[str], *, chunk_size: int = 200) -> list[st
     return out
 
 
+PROTEOME_SOURCES: tuple[tuple[str, str, str, str], ...] = (
+    # (UniProt proteome ID, source tag, domain, organism display name)
+    ("UP000002480", "rickettsia",   "Bacteria-alpha", "Rickettsia prowazekii"),
+    ("UP000000744", "pelagibacter", "Bacteria-alpha", "Pelagibacter ubique"),
+    ("UP000001425", "synechocystis","Bacteria-cyano", "Synechocystis sp. PCC6803"),
+    ("UP000002311", "yeast-cytosol","Eukarya-cytosolic", "Saccharomyces cerevisiae"),
+)
+
+MITOCARTA_URL = "https://personal.broadinstitute.org/scalvo/MitoCarta3.0/Human.MitoCarta3.0.xls"
+
+
+def _download_if_missing(url: str, dest: Path) -> Path:
+    if dest.exists():
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "tmap2/0.1"})
+    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
+        f.write(resp.read())
+    return dest
+
+
+def build_endosymbiosis_dataset(
+    *, cache_dir: Path,
+) -> tuple[list[ProteinRecord], list[str]]:
+    """Assemble the full set of proteins + sequences for the atlas.
+
+    Returns (records, sequences) parallel lists. Sequences come from UniProt
+    FASTA for proteomes, and a separate UniProt fetch for MitoCarta accessions.
+    """
+    records: list[ProteinRecord] = []
+    sequences: list[str] = []
+
+    # Proteomes (bacterial + yeast cytosolic subset).
+    for proteome_id, source, domain, organism in PROTEOME_SOURCES:
+        ids, seqs = fetch_uniprot_proteome(proteome_id, cache_dir=cache_dir)
+        if source == "yeast-cytosol":
+            keep = set(filter_cytosolic(ids))
+            keep_mask = [i in keep for i in ids]
+            ids = [i for i, k in zip(ids, keep_mask, strict=True) if k]
+            seqs = [s for s, k in zip(seqs, keep_mask, strict=True) if k]
+        for acc, seq in zip(ids, seqs, strict=True):
+            records.append(ProteinRecord(
+                accession=acc, organism=organism, source=source,
+                domain=domain, compartment="-",
+            ))
+            sequences.append(seq)
+
+    # MitoCarta — parse the xls for accessions + compartments, then fetch sequences.
+    mito_xls = _download_if_missing(MITOCARTA_URL, cache_dir / "Human.MitoCarta3.0.xls")
+    mito_records = load_mitocarta(mito_xls)
+    mito_accs = [r.accession for r in mito_records]
+    ann = fetch_uniprot(mito_accs, fields=("accession", "sequence"))
+    seq_by_acc = {
+        str(ann["accession"][i]): str(ann["sequence"][i])
+        for i in range(len(mito_accs))
+    }
+    for r in mito_records:
+        seq = seq_by_acc.get(r.accession, "")
+        if seq:
+            records.append(r)
+            sequences.append(seq)
+
+    return records, sequences
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 

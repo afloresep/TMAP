@@ -98,3 +98,36 @@ def test_filter_cytosolic_drops_organellar_targeting(monkeypatch):
 
     kept = filter_cytosolic(list(annotations.keys()))
     assert set(kept) == {"P00001", "P00004"}
+
+
+def test_build_endosymbiosis_dataset_assembles_all_sources(tmp_path, monkeypatch):
+    from endosymbiosis_mito_tmap import ProteinRecord, build_endosymbiosis_dataset
+
+    def fake_proteome(pid, *, cache_dir, reviewed_only=False):
+        return ([f"{pid}_A", f"{pid}_B"], ["MAAA", "MBBB"])
+    def fake_mitocarta(_path):
+        return [ProteinRecord(
+            accession="P00395", organism="Homo sapiens", source="mitocarta",
+            domain="Eukarya-mito", compartment="MIM_matrix",
+        )]
+    def fake_cytosolic_filter(ids, **_):
+        return [ids[0]]  # keep the first yeast ID only
+
+    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot_proteome", fake_proteome)
+    monkeypatch.setattr("endosymbiosis_mito_tmap.load_mitocarta", fake_mitocarta)
+    monkeypatch.setattr("endosymbiosis_mito_tmap.filter_cytosolic", fake_cytosolic_filter)
+    # Fake MitoCarta sequence fetch: return a dict with `sequence` per accession.
+    def fake_fetch(ids, **_):
+        return {
+            "accession": np.array(ids, dtype=object),
+            "sequence": np.array(["MCCC"] * len(ids), dtype=object),
+        }
+    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot", fake_fetch)
+
+    records, sequences = build_endosymbiosis_dataset(cache_dir=tmp_path)
+
+    sources = {r.source for r in records}
+    assert sources == {"rickettsia", "pelagibacter", "synechocystis",
+                       "yeast-cytosol", "mitocarta"}
+    assert len(records) == len(sequences)
+    assert all(isinstance(s, str) and len(s) >= 3 for s in sequences)
