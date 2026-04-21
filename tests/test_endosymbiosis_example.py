@@ -7,6 +7,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
+
 EXAMPLES = Path(__file__).parent.parent / "examples"
 sys.path.insert(0, str(EXAMPLES))
 
@@ -73,3 +75,26 @@ def test_load_mitocarta_returns_accessions_and_compartments(tmp_path):
     assert by_acc["P00395"].domain == "Eukarya-mito"
     assert by_acc["P00395"].organism == "Homo sapiens"
     assert set(by_acc.keys()) == {"P00395", "P25705", "Q15388"}
+
+
+def test_filter_cytosolic_drops_organellar_targeting(monkeypatch):
+    from endosymbiosis_mito_tmap import filter_cytosolic
+
+    annotations = {
+        "P00001": "SUBCELLULAR LOCATION: Cytoplasm.",
+        "P00002": "SUBCELLULAR LOCATION: Mitochondrion.",
+        "P00003": "SUBCELLULAR LOCATION: Plastid, chloroplast.",
+        "P00004": "SUBCELLULAR LOCATION: Cytoplasm; Nucleus.",
+        "P00005": "",
+    }
+    def fake_fetch(ids, **_):
+        return {
+            "accession": np.array(ids, dtype=object),
+            "cc_subcellular_location": np.array(
+                [annotations.get(i, "") for i in ids], dtype=object,
+            ),
+        }
+    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot", fake_fetch)
+
+    kept = filter_cytosolic(list(annotations.keys()))
+    assert set(kept) == {"P00001", "P00004"}

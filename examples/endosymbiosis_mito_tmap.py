@@ -56,7 +56,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from tmap.utils.proteins import read_fasta
+from tmap.utils.proteins import fetch_uniprot, read_fasta
 
 HERE = Path(__file__).parent
 DATA_DIR = HERE / "data" / "endosymbiosis"
@@ -164,6 +164,29 @@ def load_mitocarta(xls_path: Path) -> list[ProteinRecord]:
             accession=acc, organism="Homo sapiens", source="mitocarta",
             domain="Eukarya-mito", compartment=loc,
         ))
+    return out
+
+
+def filter_cytosolic(accessions: list[str], *, chunk_size: int = 200) -> list[str]:
+    """Keep accessions whose UniProt subcellular-location string mentions
+    'Cytoplasm' or 'Cytosol' AND does NOT mention 'Mitochondrion',
+    'Plastid', or 'Chloroplast'.
+
+    Used to produce a non-organellar control set from a full proteome.
+    """
+    out: list[str] = []
+    for i in range(0, len(accessions), chunk_size):
+        chunk = accessions[i : i + chunk_size]
+        ann = fetch_uniprot(chunk, fields=("accession", "cc_subcellular_location"))
+        texts = ann["cc_subcellular_location"]
+        for j, acc in enumerate(chunk):
+            t = str(texts[j]).lower() if j < len(texts) else ""
+            if not t:
+                continue
+            has_cyto  = ("cytoplasm" in t) or ("cytosol" in t)
+            has_other = any(k in t for k in ("mitochondrion", "plastid", "chloroplast"))
+            if has_cyto and not has_other:
+                out.append(acc)
     return out
 
 
