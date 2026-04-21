@@ -56,6 +56,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+from numpy.typing import NDArray
+
 from tmap.utils.proteins import fetch_uniprot, read_fasta
 
 HERE = Path(__file__).parent
@@ -253,6 +256,68 @@ def build_endosymbiosis_dataset(
             sequences.append(seq)
 
     return records, sequences
+
+
+def write_dataset_fasta(
+    records: list[ProteinRecord],
+    sequences: list[str],
+    *,
+    fasta_path: Path,
+) -> None:
+    """Write records + sequences as a bare FASTA (accession-only headers)."""
+    fasta_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(fasta_path, "w") as f:
+        for r, seq in zip(records, sequences, strict=True):
+            f.write(f">{r.accession}\n{seq}\n")
+
+
+def write_dataset_metadata_tsv(
+    records: list[ProteinRecord],
+    *,
+    tsv_path: Path,
+) -> None:
+    """Write a TSV keyed by accession with the columns ESM pipelines don't need
+    but TMAP analysis does."""
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tsv_path, "w") as f:
+        f.write("accession\torganism\tsource\tdomain\tcompartment\n")
+        for r in records:
+            f.write(f"{r.accession}\t{r.organism}\t{r.source}\t{r.domain}\t{r.compartment}\n")
+
+
+def load_external_embeddings(
+    npz_path: Path,
+    *,
+    expected_accessions: list[str],
+) -> tuple[NDArray[np.float32], NDArray]:
+    """Load a .npz containing arrays `embeddings` (N, D) and `accessions` (N,).
+
+    Validates that the embedding accession order matches expected_accessions.
+    This catches the common "I re-ordered my FASTA" mistake before it poisons
+    the tree.
+    """
+    data = np.load(npz_path, allow_pickle=True)
+    if "embeddings" not in data.files or "accessions" not in data.files:
+        raise KeyError(
+            f"{npz_path} must contain 'embeddings' and 'accessions' arrays; "
+            f"found {list(data.files)}."
+        )
+    accs = list(data["accessions"])
+    if accs != list(expected_accessions):
+        first_diff = next(
+            (i for i, (a, b) in enumerate(zip(accs, expected_accessions)) if a != b),
+            min(len(accs), len(expected_accessions)),
+        )
+        got = accs[first_diff] if first_diff < len(accs) else "<end>"
+        want = (expected_accessions[first_diff]
+                if first_diff < len(expected_accessions) else "<end>")
+        raise ValueError(
+            f"{npz_path} accession order does not match the FASTA. "
+            f"First divergence at index {first_diff}: "
+            f"got {got}, expected {want}."
+        )
+    X = np.asarray(data["embeddings"], dtype=np.float32)
+    return X, np.array(accs, dtype=object)
 
 
 def main() -> None:

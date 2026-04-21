@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
 sys.path.insert(0, str(EXAMPLES))
@@ -131,3 +132,59 @@ def test_build_endosymbiosis_dataset_assembles_all_sources(tmp_path, monkeypatch
                        "yeast-cytosol", "mitocarta"}
     assert len(records) == len(sequences)
     assert all(isinstance(s, str) and len(s) >= 3 for s in sequences)
+
+
+def test_write_dataset_fasta_preserves_accession_order(tmp_path):
+    from endosymbiosis_mito_tmap import ProteinRecord, write_dataset_fasta
+
+    records = [
+        ProteinRecord(accession="A1", organism="Org1", source="rickettsia",
+                      domain="Bacteria-alpha", compartment="-"),
+        ProteinRecord(accession="B2", organism="Org2", source="mitocarta",
+                      domain="Eukarya-mito", compartment="matrix"),
+    ]
+    sequences = ["MAAA", "MBBB"]
+    fasta = tmp_path / "dataset.fasta"
+    write_dataset_fasta(records, sequences, fasta_path=fasta)
+
+    text = fasta.read_text()
+    assert text.startswith(">A1")
+    assert "\nMAAA\n" in text
+    assert ">B2" in text
+    assert "\nMBBB\n" in text
+
+
+def test_write_dataset_metadata_tsv_columns(tmp_path):
+    from endosymbiosis_mito_tmap import ProteinRecord, write_dataset_metadata_tsv
+
+    records = [
+        ProteinRecord(accession="P00395", organism="Homo sapiens", source="mitocarta",
+                      domain="Eukarya-mito", compartment="MIM_matrix"),
+    ]
+    tsv = tmp_path / "dataset_metadata.tsv"
+    write_dataset_metadata_tsv(records, tsv_path=tsv)
+
+    lines = tsv.read_text().strip().split("\n")
+    assert lines[0].split("\t") == [
+        "accession", "organism", "source", "domain", "compartment",
+    ]
+    assert lines[1].split("\t") == [
+        "P00395", "Homo sapiens", "mitocarta", "Eukarya-mito", "MIM_matrix",
+    ]
+
+
+def test_load_external_embeddings_validates_shape_and_order(tmp_path):
+    from endosymbiosis_mito_tmap import load_external_embeddings
+
+    npz = tmp_path / "emb.npz"
+    np.savez(npz,
+             embeddings=np.ones((3, 1280), dtype=np.float32),
+             accessions=np.array(["A", "B", "C"], dtype=object))
+
+    X, accs = load_external_embeddings(npz, expected_accessions=["A", "B", "C"])
+    assert X.shape == (3, 1280)
+    assert list(accs) == ["A", "B", "C"]
+
+    # Mismatched order must raise.
+    with pytest.raises(ValueError, match="accession"):
+        load_external_embeddings(npz, expected_accessions=["A", "C", "B"])
