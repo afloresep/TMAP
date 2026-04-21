@@ -50,6 +50,8 @@ def test_load_shahan_h5ad_returns_shahan_atlas(tmp_path):
     assert atlas.X_umap.shape == (200, 2)
     assert "consensus_time" in atlas.obs.columns
     assert atlas.n_cells == 200
+    assert atlas.var_names.shape[0] == adata.shape[1]  # n_vars
+    assert atlas.expression.shape == (200, 10)          # same shape as synthetic .X
 
 
 def test_load_shahan_h5ad_missing_pca_raises(tmp_path):

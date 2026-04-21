@@ -9,7 +9,6 @@ Run once:
 Then:
     python examples/arabidopsis_root_ground_tissue_tmap.py
     python examples/arabidopsis_root_ground_tissue_tmap.py --validate
-    python examples/arabidopsis_root_ground_tissue_tmap.py --serve
 """
 from __future__ import annotations
 
@@ -39,6 +38,8 @@ class ShahanAtlas:
     X_pca: NDArray[np.float32]
     X_umap: NDArray[np.float32]
     obs: pd.DataFrame
+    var_names: NDArray         # gene symbols
+    expression: NDArray        # (n_cells, n_genes) dense log-normalized counts
 
     @property
     def n_cells(self) -> int:
@@ -58,7 +59,12 @@ def load_shahan_h5ad(path: Path | str) -> ShahanAtlas:
         )
     X_pca = np.asarray(adata.obsm["X_pca"], dtype=np.float32)
     X_umap = np.asarray(adata.obsm.get("X_umap", np.zeros((adata.n_obs, 2))), dtype=np.float32)
-    return ShahanAtlas(X_pca=X_pca, X_umap=X_umap, obs=adata.obs.copy())
+    expression = adata.X.toarray() if hasattr(adata.X, "toarray") else np.asarray(adata.X)
+    var_names = np.asarray(adata.var_names)
+    return ShahanAtlas(
+        X_pca=X_pca, X_umap=X_umap, obs=adata.obs.copy(),
+        var_names=var_names, expression=expression,
+    )
 
 
 def pick_root_cell(X: NDArray, cell_types: NDArray, *, label: str) -> int:
@@ -382,12 +388,9 @@ def main() -> None:
     )
     print("  Figure 1 written.")
 
-    # Figure 2. Requires raw expression for SCR/MYB36/CASP1.
-    gene_names = np.asarray(ad.read_h5ad(args.path, backed="r").var_names)
-    X_expr = ad.read_h5ad(args.path).X
-    if hasattr(X_expr, "toarray"):
-        X_expr = X_expr.toarray()
-    X_expr_wt = np.asarray(X_expr)[wt_mask]
+    # Figure 2. Expression matrix is already loaded in the atlas.
+    gene_names = atlas.var_names
+    X_expr_wt = atlas.expression[wt_mask]
 
     root = pick_root_cell(X_pca_wt, cell_types_wt, label=args.root_label)
     target = pick_target_cell(tmap_pt, cell_types_wt, label=args.target_label)
@@ -429,11 +432,16 @@ def main() -> None:
         ))
 
         markers = path_report["markers"]
-        scr_monotone = _is_monotone_non_decreasing(markers.get("SCR", []))
+        scr_values = markers.get("SCR", [])
+        scr_found = len(scr_values) > 0
+        scr_monotone = scr_found and _is_monotone_non_decreasing(scr_values)
         results.append(_criterion(
             "SCR expression is non-decreasing along QC→Endodermis path",
             scr_monotone,
-            f"len={len(markers.get('SCR', []))}",
+            f"len={len(scr_values)}" + (
+                f", min={min(scr_values):.2f}, max={max(scr_values):.2f}"
+                if scr_found else " (SCR not found in gene_names!)"
+            ),
         ))
 
         if enrichment:
