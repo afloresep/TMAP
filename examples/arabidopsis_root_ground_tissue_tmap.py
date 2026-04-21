@@ -54,6 +54,34 @@ def load_shahan_h5ad(path: Path | str) -> ShahanAtlas:
     return ShahanAtlas(X_pca=X_pca, X_umap=X_umap, obs=adata.obs.copy())
 
 
+def pick_root_cell(X: NDArray, cell_types: NDArray, *, label: str) -> int:
+    """Return the index of the cell closest to the centroid of cells with
+    cell_type==label.
+
+    Raises ValueError if no cells carry that label.
+    """
+    mask = cell_types == label
+    if not mask.any():
+        unique = sorted(set(cell_types.tolist()))
+        raise ValueError(f"No cells with cell_type={label!r}. Available: {unique}")
+    pool = np.where(mask)[0]
+    centroid = X[pool].mean(axis=0)
+    local = int(np.argmin(np.linalg.norm(X[pool] - centroid, axis=1)))
+    return int(pool[local])
+
+
+def pick_target_cell(
+    pseudotime: NDArray, cell_types: NDArray, *, label: str,
+) -> int:
+    """Return the index of the highest-pseudotime cell with cell_type==label."""
+    mask = cell_types == label
+    if not mask.any():
+        unique = sorted(set(cell_types.tolist()))
+        raise ValueError(f"No cells with cell_type={label!r}. Available: {unique}")
+    pool = np.where(mask)[0]
+    return int(pool[np.argmax(pseudotime[pool])])
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 

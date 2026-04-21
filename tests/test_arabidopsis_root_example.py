@@ -72,3 +72,38 @@ def test_load_shahan_h5ad_missing_umap_falls_back_to_zeros(tmp_path):
 
     assert atlas.X_umap.shape == (30, 2)
     assert np.all(atlas.X_umap == 0)
+
+
+from arabidopsis_root_ground_tissue_tmap import (  # noqa: E402
+    pick_root_cell,
+    pick_target_cell,
+)
+
+
+def test_pick_root_cell_picks_qc_centroid():
+    rng = np.random.default_rng(0)
+    # 50 QC cells clustered at origin, 50 Cortex at (5, 5, ...).
+    X = np.vstack([
+        rng.normal(0, 0.1, size=(50, 10)),
+        rng.normal(5, 0.1, size=(50, 10)),
+    ]).astype(np.float32)
+    cell_types = np.array(["QC"] * 50 + ["Cortex"] * 50)
+
+    idx = pick_root_cell(X, cell_types, label="QC")
+
+    assert 0 <= idx < 50, f"Root cell {idx} must be inside the QC block"
+
+
+def test_pick_root_cell_missing_label_raises():
+    X = np.zeros((10, 5), dtype=np.float32)
+    cell_types = np.array(["Cortex"] * 10)
+    with pytest.raises(ValueError, match="QC"):
+        pick_root_cell(X, cell_types, label="QC")
+
+
+def test_pick_target_cell_picks_highest_pseudotime_in_label():
+    pseudotime = np.array([0.1, 0.9, 0.2, 0.8, 0.5, 0.99, 0.3], dtype=np.float32)
+    cell_types = np.array(["Cortex", "Endodermis", "Cortex", "Endodermis",
+                           "QC", "Cortex", "Endodermis"])
+    idx = pick_target_cell(pseudotime, cell_types, label="Endodermis")
+    assert idx == 1, "Highest pseudotime among Endodermis is index 1 (0.9)"
