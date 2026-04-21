@@ -51,6 +51,8 @@ No torch, no fair-esm — ESM-2 inference happens in the user's own environment.
 """
 from __future__ import annotations
 
+import argparse
+import csv
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -59,7 +61,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
+from scipy.stats import mannwhitneyu
 
+from tmap import TMAP
 from tmap.utils.proteins import fetch_uniprot, read_fasta
 
 HERE = Path(__file__).parent
@@ -415,8 +419,167 @@ def plot_endosymbiosis_tree(
     plt.close(fig)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Endosymbiosis mitochondrial TMAP.")
+    p.add_argument("--cache-dir", type=Path, default=DATA_DIR)
+    p.add_argument("--export", action="store_true",
+                   help="Assemble the dataset and write FASTA + metadata TSV for "
+                        "external ESM-2 embedding, then exit.")
+    p.add_argument("--embeddings", type=Path, default=None,
+                   help="Path to the .npz containing user-produced ESM-2 embeddings. "
+                        "Required unless --export is given.")
+    p.add_argument("--n-neighbors", type=int, default=20)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--validate", action="store_true")
+    p.add_argument("--max-cells", type=int, default=0,
+                   help="If >0, subsample to this many proteins (stratified by source).")
+    return p
+
+
+def _stratified_subsample(
+    records, sequences, sources, domains, accessions, *, max_cells: int, seed: int,
+):
+    """Uniformly stratified subsampling by source; returns the same 5 lists/arrays."""
+    rng = np.random.default_rng(seed)
+    total = len(records)
+    keep: list[int] = []
+    for src in sorted(set(sources.tolist())):
+        idx = np.where(sources == src)[0]
+        take = min(len(idx), max(1, int(max_cells * len(idx) / total)))
+        keep.extend(rng.choice(idx, size=take, replace=False).tolist())
+    keep = sorted(keep)
+    return (
+        [records[i]   for i in keep],
+        [sequences[i] for i in keep],
+        sources[keep],
+        domains[keep],
+        [accessions[i] for i in keep],
+    )
+
+
 def main() -> None:
-    raise NotImplementedError("Filled in later tasks.")
+    args = _build_parser().parse_args()
+
+    # Stage A: --export produces FASTA + metadata TSV and exits.
+    if args.export:
+        print("Building dataset …")
+        records, sequences = build_endosymbiosis_dataset(cache_dir=args.cache_dir)
+        sources    = np.array([r.source for r in records])
+        domains    = np.array([r.domain for r in records])
+        accessions = [r.accession for r in records]
+
+        if args.max_cells and len(records) > args.max_cells:
+            records, sequences, sources, domains, accessions = _stratified_subsample(
+                records, sequences, sources, domains, accessions,
+                max_cells=args.max_cells, seed=args.seed,
+            )
+
+        counts_by_source = {s: int((sources == s).sum()) for s in sorted(set(sources.tolist()))}
+        print(f"  Total: {len(records):,}")
+        for k, v in counts_by_source.items():
+            print(f"    {k}: {v:,}")
+
+        fasta_path = args.cache_dir / "dataset.fasta"
+        tsv_path   = args.cache_dir / "dataset_metadata.tsv"
+        write_dataset_fasta(records, sequences, fasta_path=fasta_path)
+        write_dataset_metadata_tsv(records, tsv_path=tsv_path)
+        print(f"  Wrote {fasta_path}")
+        print(f"  Wrote {tsv_path}")
+        print("\nNext: run your ESM-2 pipeline on the FASTA and save a .npz "
+              "containing arrays 'embeddings' (N,1280) and 'accessions' (N,) "
+              "in the same order as the FASTA. Then rerun this script with "
+              "--embeddings <path.npz>. See the module docstring for a ready-to-paste "
+              "fair-esm recipe.")
+        return
+
+    # Stage B requires --embeddings.
+    if args.embeddings is None:
+        raise SystemExit(
+            "error: either --export (to write FASTA+TSV) or "
+            "--embeddings <path.npz> (to fit TMAP) is required."
+        )
+
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
+
+    fasta_path = args.cache_dir / "dataset.fasta"
+    tsv_path   = args.cache_dir / "dataset_metadata.tsv"
+    if not fasta_path.exists() or not tsv_path.exists():
+        raise SystemExit(
+            f"Dataset files missing. Run --export first to produce {fasta_path} "
+            f"and {tsv_path}."
+        )
+
+    ids, _seqs = read_fasta(fasta_path)
+    accessions = [i.split()[0] for i in ids]
+
+    # Reload metadata keyed by accession.
+    meta_by_acc: dict[str, dict[str, str]] = {}
+    with open(tsv_path) as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            meta_by_acc[row["accession"]] = row
+    sources = np.array([meta_by_acc[a]["source"] for a in accessions])
+    domains = np.array([meta_by_acc[a]["domain"] for a in accessions])
+
+    print(f"Loading embeddings from {args.embeddings} …")
+    X, _ = load_external_embeddings(args.embeddings, expected_accessions=accessions)
+    print(f"  Embeddings: {X.shape}")
+
+    print(f"Fitting TMAP (metric=cosine, n_neighbors={args.n_neighbors}) …")
+    model = TMAP(
+        metric="cosine", n_neighbors=args.n_neighbors, seed=args.seed, store_index=True,
+    ).fit(X.astype(np.float32, copy=False))
+
+    tree = model.tree_
+    layout = model.embedding_
+    tree_edges = [(int(u), int(v)) for (u, v) in tree.edges]
+
+    plot_endosymbiosis_tree(
+        layout=layout, domains=domains, tree_edges=tree_edges,
+        out_path=IMG_DIR / "endosymbiosis_tree.png",
+    )
+    print("  Figure written: endosymbiosis_tree.png")
+
+    # Stats.
+    stats = mito_to_alpha_path_stats(tree=tree, sources=sources)
+    frac = alpha_branch_mito_fraction(tree=tree, sources=sources, radius=2)
+    mito_mask = sources == "mitocarta"
+    alpha_mask = (sources == "rickettsia") | (sources == "pelagibacter")
+    cyto_mask = sources == "yeast-cytosol"
+
+    mito_idx = np.where(mito_mask)[0]
+    hops_alpha, hops_cyto = [], []
+    for m in mito_idx:
+        ha = min((len(tree.path(int(m), int(a))) - 1) for a in np.where(alpha_mask)[0])
+        hc = min((len(tree.path(int(m), int(c))) - 1) for c in np.where(cyto_mask)[0])
+        hops_alpha.append(ha)
+        hops_cyto.append(hc)
+    mw = mannwhitneyu(hops_alpha, hops_cyto, alternative="less")
+
+    print(f"  median hops mito→α-proteo = {stats['median_hops_to_alpha']:.1f}")
+    print(f"  median hops mito→cytosol  = {stats['median_hops_to_cytosol']:.1f}")
+    print(f"  α-proteo branch mito fraction (radius=2) = {frac:.2%}")
+    print(f"  Mann-Whitney one-sided p (alpha < cyto) = {mw.pvalue:.3e}")
+
+    if args.validate:
+        print("\nValidation:")
+        criteria = [
+            ("alpha branch contains >= 30% of mitocarta",
+             frac >= 0.30, f"frac={frac:.2%}"),
+            ("median(mito→α) < median(mito→cyto) with p < 0.01",
+             (stats["median_hops_to_alpha"] < stats["median_hops_to_cytosol"])
+             and (mw.pvalue < 0.01),
+             f"alpha_median={stats['median_hops_to_alpha']:.1f}, "
+             f"cyto_median={stats['median_hops_to_cytosol']:.1f}, p={mw.pvalue:.2e}"),
+        ]
+        fails = []
+        for name, ok, detail in criteria:
+            print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+            if not ok:
+                fails.append(name)
+        if fails:
+            raise SystemExit(1)
+        print(f"\nAll {len(criteria)} criteria passed.")
 
 
 if __name__ == "__main__":
