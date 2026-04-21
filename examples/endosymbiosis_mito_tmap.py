@@ -45,7 +45,7 @@ Two-stage workflow:
            --embeddings examples/data/endosymbiosis/embeddings.npz --validate
 
 Requirements:
-    pip install openpyxl matplotlib
+    pip install openpyxl matplotlib 'xlrd<2.0'
 
 No torch, no fair-esm — ESM-2 inference happens in the user's own environment.
 """
@@ -130,49 +130,110 @@ def _parse_uniprot_accession(header: str) -> str:
 def load_mitocarta(xls_path: Path) -> list[ProteinRecord]:
     """Parse the MitoCarta 3.0 spreadsheet; return ProteinRecord per entry.
 
-    Expects at minimum columns: 'UniProt', 'MitoCarta3.0_SubMitoLocalization'.
+    Auto-detects legacy OLE .xls vs OOXML .xlsx by magic bytes and dispatches
+    to the right reader. MitoCarta 3.0 is shipped as legacy .xls, which
+    requires xlrd (<2.0): ``pip install 'xlrd<2.0'``. OOXML .xlsx files are
+    read with openpyxl.
+
+    Note: we read the legacy .xls path directly with xlrd rather than via
+    pandas, because modern pandas requires xlrd>=2.0.1, and xlrd 2.0 dropped
+    .xls support. Reading directly with xlrd<2.0 sidesteps that conflict.
+
+    Expects at minimum columns: 'UniProt' and ideally
+    'MitoCarta3.0_SubMitoLocalization'.
     """
-    import io
+    with open(xls_path, "rb") as f:
+        magic = f.read(8)
 
-    import openpyxl
-    # MitoCarta ships as '.xls' but the file is actually OOXML (xlsx) under the
-    # hood. openpyxl's extension check rejects '.xls' — bypass it by handing
-    # off an in-memory BytesIO, which skips the filename-based format check.
-    buf = io.BytesIO(Path(xls_path).read_bytes())
-    wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
-    # MitoCarta sheet names vary across minor versions; pick the first sheet
-    # whose row 1 contains 'UniProt'.
-    target = None
-    for name in wb.sheetnames:
-        ws = wb[name]
-        header = [c.value for c in next(ws.iter_rows(max_row=1))]
-        if "UniProt" in header:
-            target = (name, header)
-            break
-    if target is None:
-        raise ValueError(f"No sheet in {xls_path} has a 'UniProt' column.")
-
-    sheet_name, header = target
-    ws = wb[sheet_name]
-    ix_acc = header.index("UniProt")
-    ix_loc = (header.index("MitoCarta3.0_SubMitoLocalization")
-              if "MitoCarta3.0_SubMitoLocalization" in header else None)
-
-    out: list[ProteinRecord] = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        acc_raw = row[ix_acc]
-        if acc_raw in (None, ""):
-            continue
+    def _mk_record(acc_raw, loc_raw) -> ProteinRecord | None:
+        if acc_raw is None or acc_raw == "":
+            return None
         # UniProt column may list multiple accessions separated by '|'.
         acc = str(acc_raw).split("|")[0].strip()
         if not acc:
-            continue
-        loc = str(row[ix_loc]) if (ix_loc is not None and row[ix_loc] is not None) else "-"
-        out.append(ProteinRecord(
+            return None
+        loc = str(loc_raw) if (loc_raw not in (None, "")) else "-"
+        return ProteinRecord(
             accession=acc, organism="Homo sapiens", source="mitocarta",
             domain="Eukarya-mito", compartment=loc,
-        ))
-    return out
+        )
+
+    out: list[ProteinRecord] = []
+
+    if magic.startswith(b"\xd0\xcf\x11\xe0"):
+        # Legacy OLE .xls — read directly with xlrd<2.0.
+        import xlrd
+
+        book = xlrd.open_workbook(str(xls_path))
+        target_sheet = None
+        target_header: list[str] = []
+        for sheet in book.sheets():
+            if sheet.nrows == 0:
+                continue
+            header = [str(sheet.cell_value(0, c)) for c in range(sheet.ncols)]
+            if "UniProt" in header:
+                target_sheet = sheet
+                target_header = header
+                break
+        if target_sheet is None:
+            raise ValueError(
+                f"No sheet in {xls_path} has a 'UniProt' column. "
+                f"Available sheets: {book.sheet_names()}"
+            )
+        ix_acc = target_header.index("UniProt")
+        ix_loc = (target_header.index("MitoCarta3.0_SubMitoLocalization")
+                  if "MitoCarta3.0_SubMitoLocalization" in target_header else None)
+        for r in range(1, target_sheet.nrows):
+            acc_raw = target_sheet.cell_value(r, ix_acc)
+            loc_raw = target_sheet.cell_value(r, ix_loc) if ix_loc is not None else None
+            rec = _mk_record(acc_raw, loc_raw)
+            if rec is not None:
+                out.append(rec)
+        return out
+
+    if magic.startswith(b"PK"):
+        # OOXML .xlsx — read with openpyxl directly. Hand off an in-memory
+        # BytesIO so openpyxl skips its filename-extension check (some files
+        # are OOXML-under-the-hood but ship with a '.xls' extension).
+        import io
+
+        import openpyxl
+
+        buf = io.BytesIO(Path(xls_path).read_bytes())
+        wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+        target_name = None
+        target_header = []
+        for name in wb.sheetnames:
+            ws = wb[name]
+            try:
+                header = [c.value for c in next(ws.iter_rows(max_row=1))]
+            except StopIteration:
+                continue
+            if "UniProt" in header:
+                target_name = name
+                target_header = header
+                break
+        if target_name is None:
+            raise ValueError(
+                f"No sheet in {xls_path} has a 'UniProt' column. "
+                f"Available sheets: {wb.sheetnames}"
+            )
+        ws = wb[target_name]
+        ix_acc = target_header.index("UniProt")
+        ix_loc = (target_header.index("MitoCarta3.0_SubMitoLocalization")
+                  if "MitoCarta3.0_SubMitoLocalization" in target_header else None)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            acc_raw = row[ix_acc]
+            loc_raw = row[ix_loc] if ix_loc is not None else None
+            rec = _mk_record(acc_raw, loc_raw)
+            if rec is not None:
+                out.append(rec)
+        return out
+
+    raise ValueError(
+        f"{xls_path}: unrecognized file format (magic bytes {magic[:4].hex()}). "
+        f"Expected legacy .xls (OLE) or .xlsx (OOXML)."
+    )
 
 
 def filter_cytosolic(accessions: list[str], *, chunk_size: int = 200) -> list[str]:
