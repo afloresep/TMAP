@@ -124,8 +124,16 @@ def plot_atlas_side_by_side(
     fig, axes = plt.subplots(1, 2, figsize=(11, 5), dpi=150)
 
     unique = sorted(set(cell_types.tolist()))
-    cmap = plt.get_cmap("tab10")
-    color_by = {label: cmap(i % 10) for i, label in enumerate(unique)}
+    if len(unique) <= 10:
+        cmap = plt.get_cmap("tab10")
+    elif len(unique) <= 20:
+        cmap = plt.get_cmap("tab20")
+    else:
+        raise ValueError(
+            f"plot_atlas_side_by_side has no safe palette for {len(unique)} "
+            f"cell types (>20). Pass a subset or map labels to coarser groups."
+        )
+    color_by = {label: cmap(i) for i, label in enumerate(unique)}
     colors = np.array([color_by[c] for c in cell_types])
 
     for ax, coords, title in (

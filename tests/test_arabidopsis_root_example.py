@@ -153,4 +153,23 @@ def test_plot_atlas_side_by_side_writes_file(tmp_path):
         cell_types=np.array(["QC", "Cortex"] * 25),
         out_path=out,
     )
-    assert out.exists() and out.stat().st_size > 0
+    assert out.exists(), "figure file was not created"
+    # Two-panel scatter at 150 DPI produces >10 KB; this bar rejects a blank canvas.
+    assert out.stat().st_size > 8_000, (
+        f"figure file is only {out.stat().st_size} bytes — suspiciously small, "
+        f"likely blank or truncated"
+    )
+
+
+def test_plot_atlas_side_by_side_raises_on_too_many_classes(tmp_path):
+    from arabidopsis_root_ground_tissue_tmap import plot_atlas_side_by_side
+    rng = np.random.default_rng(0)
+    n = 50
+    cell_types = np.array([f"T{i}" for i in range(25)] * 2)  # 25 unique classes
+    with pytest.raises(ValueError, match="no safe palette"):
+        plot_atlas_side_by_side(
+            X_umap=rng.standard_normal((n, 2)).astype(np.float32),
+            tmap_layout=rng.standard_normal((n, 2)).astype(np.float32),
+            cell_types=cell_types,
+            out_path=tmp_path / "toomany.png",
+        )
