@@ -192,7 +192,7 @@ def plot_path_killshot(
     Returns a dict with 'path', 'hops', 'markers' keys for downstream reporting.
     """
     tree = model.tree_
-    path = np.asarray(tree.path(root, target))
+    path = np.asarray(tree.path(root, target), dtype=np.int64)
     hops = len(path)
 
     markers_along = marker_expression_along_path(

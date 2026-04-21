@@ -190,3 +190,20 @@ def test_marker_expression_along_path_returns_one_row_per_marker():
     assert set(result.keys()) == {"SCR", "CASP1"}
     assert result["SCR"].shape == (len(path),)
     np.testing.assert_allclose(result["SCR"], X[path, 0])
+
+
+def test_marker_expression_along_path_skips_unknown_markers():
+    from arabidopsis_root_ground_tissue_tmap import marker_expression_along_path
+    rng = np.random.default_rng(0)
+    X = rng.random((10, 3)).astype(np.float32)
+    gene_names = np.array(["SCR", "MYB36", "CASP1"])
+    path = np.array([0, 2, 5, 9])
+
+    result = marker_expression_along_path(
+        expression=X, gene_names=gene_names,
+        markers=("SCR", "NOT_A_GENE", "ALSO_MISSING"), path=path,
+    )
+
+    # Unknown markers silently dropped; known ones preserved.
+    assert set(result.keys()) == {"SCR"}
+    assert result["SCR"].shape == (4,)
