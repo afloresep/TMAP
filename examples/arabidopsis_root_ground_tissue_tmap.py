@@ -241,6 +241,69 @@ def plot_path_killshot(
     }
 
 
+def plot_mutant_projection(
+    *,
+    model: TMAP,
+    X_pca_mutant: NDArray,
+    X_pca_wt: NDArray,
+    cell_types_wt: NDArray,
+    out_path: Path,
+) -> dict[str, float]:
+    """Project mutant cells onto the fitted WT tree via TMAP.transform() and
+    report per-cell-type enrichment (log-odds of WT vs mutant in each type).
+
+    Returns the enrichment dict for downstream validation.
+    """
+    coords_mutant = model.transform(X_pca_mutant.astype(np.float32, copy=False))
+    coords_wt = model.embedding_
+
+    fig, ax = plt.subplots(figsize=(6, 5.5), dpi=150)
+    ax.scatter(coords_wt[:, 0], coords_wt[:, 1],
+               c="lightgray", s=2, linewidths=0, label=f"WT (n={len(coords_wt)})")
+    ax.scatter(coords_mutant[:, 0], coords_mutant[:, 1],
+               c="#d62728", s=5, linewidths=0, alpha=0.8,
+               label=f"scr-4 (n={len(coords_mutant)})")
+    ax.set_title("scarecrow-4 mutant cells projected onto WT tree")
+    ax.legend(fontsize=9, frameon=False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_aspect("equal", adjustable="datalim")
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+
+    # Enrichment per WT cell-type (coarse version — no subtree walk).
+    is_mutant = np.concatenate([np.zeros(len(coords_wt), dtype=bool),
+                                np.ones(len(coords_mutant), dtype=bool)])
+    enrichment: dict[str, float] = {}
+    for label in sorted(set(cell_types_wt.tolist())):
+        # A "subtree" here = all cells of this WT label + mutants projected
+        # near them. We use nearest-WT-label as a proxy.
+        in_sub_wt = cell_types_wt == label
+        dists = np.linalg.norm(
+            coords_mutant[:, None, :] - coords_wt[None, in_sub_wt, :], axis=2
+        ).min(axis=1)
+        threshold = np.median(np.linalg.norm(coords_wt - coords_wt.mean(axis=0), axis=1))
+        in_sub_mut = dists < threshold
+        in_subtree = np.concatenate([in_sub_wt, in_sub_mut])
+        enrichment[label] = subtree_enrichment(in_subtree=in_subtree, is_mutant=is_mutant)
+    return enrichment
+
+
+def subtree_enrichment(*, in_subtree: NDArray, is_mutant: NDArray) -> float:
+    """Log-odds of WT-vs-mutant inside a subtree relative to outside.
+
+    Positive = WT-enriched (equivalently, mutant-depleted) inside the subtree.
+    Uses Haldane-Anscombe correction (+0.5 to every cell) for zero-safety.
+    """
+    a = float(((in_subtree) & (~is_mutant)).sum()) + 0.5   # WT inside
+    b = float(((in_subtree) & ( is_mutant)).sum()) + 0.5   # mutant inside
+    c = float(((~in_subtree) & (~is_mutant)).sum()) + 0.5  # WT outside
+    d = float(((~in_subtree) & ( is_mutant)).sum()) + 0.5  # mutant outside
+    return float(np.log((a / b) / (c / d)))
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 

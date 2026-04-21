@@ -207,3 +207,38 @@ def test_marker_expression_along_path_skips_unknown_markers():
     # Unknown markers silently dropped; known ones preserved.
     assert set(result.keys()) == {"SCR"}
     assert result["SCR"].shape == (4,)
+
+
+def test_subtree_enrichment_log_odds():
+    from arabidopsis_root_ground_tissue_tmap import subtree_enrichment
+    # 10 WT in subtree, 2 mutant in subtree, 10 WT outside, 20 mutant outside.
+    # Raw log-odds would be log((10/2) / (10/20)) = log(10) ≈ 2.30, but the
+    # helper applies the Haldane-Anscombe +0.5 correction for zero-safety, so
+    # the expected value is log((10.5/2.5) / (10.5/20.5)) = log(8.2) ≈ 2.104.
+    in_subtree = np.array([True] * 12 + [False] * 30)
+    is_mutant   = np.array([False] * 10 + [True] * 2 + [False] * 10 + [True] * 20)
+
+    lor = subtree_enrichment(in_subtree=in_subtree, is_mutant=is_mutant)
+    np.testing.assert_allclose(lor, np.log(10.5 / 2.5 * 20.5 / 10.5), atol=1e-6)
+
+
+def test_plot_mutant_projection_runs_end_to_end(tmp_path):
+    from arabidopsis_root_ground_tissue_tmap import plot_mutant_projection
+
+    from tmap import TMAP
+    rng = np.random.default_rng(0)
+    X_wt = rng.standard_normal((150, 10)).astype(np.float32)
+    X_mut = rng.standard_normal((30, 10)).astype(np.float32)
+    cell_types_wt = np.array(["QC"] * 30 + ["Cortex"] * 60 + ["Endodermis"] * 60)
+    model = TMAP(metric="cosine", n_neighbors=10, seed=0, store_index=True).fit(X_wt)
+
+    out = tmp_path / "fig3.png"
+    enrichment = plot_mutant_projection(
+        model=model,
+        X_pca_mutant=X_mut,
+        X_pca_wt=X_wt,
+        cell_types_wt=cell_types_wt,
+        out_path=out,
+    )
+    assert out.exists() and out.stat().st_size > 5_000
+    assert set(enrichment.keys()) == {"QC", "Cortex", "Endodermis"}
