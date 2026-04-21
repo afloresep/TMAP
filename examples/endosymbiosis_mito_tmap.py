@@ -56,6 +56,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
@@ -367,6 +368,51 @@ def alpha_branch_mito_fraction(
                 n_close += 1
                 break
     return float(n_close) / float(len(mito_idx))
+
+
+DOMAIN_PALETTE = {
+    "Bacteria-alpha":    "#d62728",  # red
+    "Bacteria-cyano":    "#2ca02c",  # green
+    "Eukarya-mito":      "#ff7f0e",  # orange
+    "Eukarya-cytosolic": "#1f77b4",  # blue
+}
+
+
+def plot_endosymbiosis_tree(
+    *,
+    layout: NDArray,
+    domains: NDArray,
+    tree_edges,
+    out_path: Path,
+    title: str = "Endosymbiosis TMAP: ESM-2 sequence embeddings",
+) -> None:
+    """Full tree colored by domain."""
+    fig, ax = plt.subplots(figsize=(8.5, 7.5), dpi=150)
+
+    # Plot edges in light gray first so points sit on top.
+    for u, v in tree_edges:
+        ax.plot([layout[u, 0], layout[v, 0]],
+                [layout[u, 1], layout[v, 1]],
+                "-", lw=0.35, color="#cccccc", zorder=1)
+
+    for domain, color in DOMAIN_PALETTE.items():
+        mask = domains == domain
+        if not mask.any():
+            continue
+        ax.scatter(layout[mask, 0], layout[mask, 1],
+                   s=8, c=color, linewidths=0, alpha=0.85,
+                   label=f"{domain} (n={int(mask.sum())})", zorder=2)
+
+    ax.set_title(title, fontsize=11)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.legend(loc="lower left", fontsize=8, frameon=False)
+
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 def main() -> None:

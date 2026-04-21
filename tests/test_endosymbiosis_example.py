@@ -227,3 +227,18 @@ def test_alpha_branch_mito_fraction_counts_mito_within_radius():
     # Radius 1 → only mito 0 is within 1 hop of an alpha. → 0.5.
     frac_tight = alpha_branch_mito_fraction(tree=tree, sources=sources, radius=1)
     assert frac_tight == 0.5
+
+
+def test_plot_endosymbiosis_tree_writes_png(tmp_path):
+    from endosymbiosis_mito_tmap import plot_endosymbiosis_tree
+
+    rng = np.random.default_rng(0)
+    n = 60
+    layout = rng.standard_normal((n, 2)).astype(np.float32)
+    domains = np.array(["Bacteria-alpha"] * 20 + ["Bacteria-cyano"] * 20 +
+                       ["Eukarya-mito"] * 15 + ["Eukarya-cytosolic"] * 5)
+    edges = [(i, i + 1) for i in range(n - 1)]
+    out = tmp_path / "tree.png"
+    plot_endosymbiosis_tree(layout=layout, domains=domains,
+                            tree_edges=edges, out_path=out)
+    assert out.exists() and out.stat().st_size > 5_000
