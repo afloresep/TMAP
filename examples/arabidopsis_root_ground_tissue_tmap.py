@@ -13,6 +13,7 @@ Then:
 """
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -311,8 +312,143 @@ def subtree_enrichment(*, in_subtree: NDArray, is_mutant: NDArray) -> float:
     return float(np.log((a / b) / (c / d)))
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Arabidopsis root ground-tissue TMAP reproduction.")
+    p.add_argument("--path", type=Path, default=DATA_PATH,
+                   help="Path to the h5ad produced by data/shahan_root/prepare.R.")
+    p.add_argument("--n-neighbors", type=int, default=30)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--mutant-sample-col", type=str, default="sample")
+    p.add_argument("--mutant-value", type=str, default="scr4",
+                   help="Substring matched against obs[mutant_sample_col] to select mutant cells.")
+    p.add_argument("--root-label", type=str, default="QC")
+    p.add_argument("--target-label", type=str, default="Endodermis")
+    p.add_argument("--validate", action="store_true",
+                   help="Exit non-zero if success criteria fail.")
+    return p
+
+
+def _criterion(name: str, ok: bool, detail: str) -> tuple[str, bool, str]:
+    flag = "PASS" if ok else "FAIL"
+    print(f"  [{flag}] {name}: {detail}")
+    return (name, ok, detail)
+
+
+def _is_monotone_non_decreasing(xs) -> bool:
+    arr = np.asarray(xs, dtype=np.float64)
+    if arr.size <= 1:
+        return True
+    return bool(np.all(np.diff(arr) >= -1e-6))
+
+
 def main() -> None:
-    raise NotImplementedError("Filled in later tasks.")
+    args = _build_parser().parse_args()
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
+
+    print(f"Loading atlas from {args.path} …")
+    atlas = load_shahan_h5ad(args.path)
+    print(f"  {atlas.n_cells:,} cells, obs columns: {list(atlas.obs.columns)[:10]}")
+
+    sample_col = atlas.obs[args.mutant_sample_col].astype(str).to_numpy()
+    is_mutant = np.array([args.mutant_value in s for s in sample_col])
+    wt_mask = ~is_mutant
+    print(f"  WT cells: {int(wt_mask.sum()):,}   mutant cells: {int(is_mutant.sum()):,}")
+
+    cell_types = atlas.obs["celltype.anno"].astype(str).to_numpy() \
+        if "celltype.anno" in atlas.obs.columns \
+        else atlas.obs["cell_type"].astype(str).to_numpy()
+    consensus_time = atlas.obs["consensus_time"].astype(np.float32).to_numpy()
+
+    X_pca_wt = atlas.X_pca[wt_mask]
+    X_pca_mut = atlas.X_pca[is_mutant] if is_mutant.any() else None
+    cell_types_wt = cell_types[wt_mask]
+    consensus_time_wt = consensus_time[wt_mask]
+
+    model, tmap_pt, rho = fit_tmap_with_pseudotime(
+        X_pca=X_pca_wt,
+        cell_types=cell_types_wt,
+        consensus_time=consensus_time_wt,
+        n_neighbors=args.n_neighbors,
+        seed=args.seed,
+    )
+    print(f"  Spearman(tree_pseudotime, consensus_time) = {rho:.3f}")
+
+    # Figure 1.
+    plot_atlas_side_by_side(
+        X_umap=atlas.X_umap[wt_mask],
+        tmap_layout=model.embedding_,
+        cell_types=cell_types_wt,
+        out_path=IMG_DIR / "arabidopsis_atlas_umap_vs_tmap.png",
+    )
+    print("  Figure 1 written.")
+
+    # Figure 2. Requires raw expression for SCR/MYB36/CASP1.
+    gene_names = np.asarray(ad.read_h5ad(args.path, backed="r").var_names)
+    X_expr = ad.read_h5ad(args.path).X
+    if hasattr(X_expr, "toarray"):
+        X_expr = X_expr.toarray()
+    X_expr_wt = np.asarray(X_expr)[wt_mask]
+
+    root = pick_root_cell(X_pca_wt, cell_types_wt, label=args.root_label)
+    target = pick_target_cell(tmap_pt, cell_types_wt, label=args.target_label)
+    path_report = plot_path_killshot(
+        model=model,
+        root=root,
+        target=target,
+        expression=X_expr_wt,
+        gene_names=gene_names,
+        consensus_time=consensus_time_wt,
+        out_path=IMG_DIR / "arabidopsis_path_killshot.png",
+    )
+    print(f"  Figure 2 written. Path: {path_report['hops']} hops.")
+
+    # Figure 3.
+    enrichment: dict[str, float] = {}
+    if X_pca_mut is not None:
+        enrichment = plot_mutant_projection(
+            model=model,
+            X_pca_mutant=X_pca_mut,
+            X_pca_wt=X_pca_wt,
+            cell_types_wt=cell_types_wt,
+            out_path=IMG_DIR / "arabidopsis_scr_mutant.png",
+        )
+        print("  Figure 3 written.")
+        for k, v in enrichment.items():
+            print(f"    subtree log-odds WT/mutant  [{k}] = {v:+.2f}")
+    else:
+        print("  Figure 3 skipped — no mutant cells found in this atlas.")
+
+    # Validation.
+    if args.validate:
+        print("\nValidation:")
+        results = []
+        results.append(_criterion(
+            "Spearman(tree_pseudotime, consensus_time) >= 0.85",
+            rho >= 0.85,
+            f"rho={rho:.3f}",
+        ))
+
+        markers = path_report["markers"]
+        scr_monotone = _is_monotone_non_decreasing(markers.get("SCR", []))
+        results.append(_criterion(
+            "SCR expression is non-decreasing along QC→Endodermis path",
+            scr_monotone,
+            f"len={len(markers.get('SCR', []))}",
+        ))
+
+        if enrichment:
+            endodermis_wt_enriched = enrichment.get("Endodermis", 0.0) > 0
+            results.append(_criterion(
+                "Endodermis subtree is WT-enriched in scr-4 projection",
+                endodermis_wt_enriched,
+                f"log-odds={enrichment.get('Endodermis', 0.0):+.2f}",
+            ))
+
+        failures = [name for (name, ok, _) in results if not ok]
+        if failures:
+            print(f"\n{len(failures)}/{len(results)} criteria failed: {failures}")
+            raise SystemExit(1)
+        print(f"\nAll {len(results)} criteria passed.")
 
 
 if __name__ == "__main__":

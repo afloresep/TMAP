@@ -278,3 +278,11 @@ def test_plot_mutant_projection_runs_end_to_end(tmp_path):
     assert enrichment["Cortex"] > enrichment["Endodermis"], (
         f"Cortex should be more WT-enriched than Endodermis; got {enrichment}"
     )
+
+
+def test_monotone_helper():
+    from arabidopsis_root_ground_tissue_tmap import _is_monotone_non_decreasing
+    assert _is_monotone_non_decreasing([0.1, 0.2, 0.2, 0.5])
+    assert not _is_monotone_non_decreasing([0.1, 0.3, 0.2])
+    assert _is_monotone_non_decreasing([])
+    assert _is_monotone_non_decreasing([0.42])
