@@ -60,3 +60,15 @@ def test_load_shahan_h5ad_missing_pca_raises(tmp_path):
 
     with pytest.raises(KeyError, match="X_pca"):
         load_shahan_h5ad(path)
+
+
+def test_load_shahan_h5ad_missing_umap_falls_back_to_zeros(tmp_path):
+    adata = _make_synthetic_atlas(n_cells=30)
+    del adata.obsm["X_umap"]
+    path = tmp_path / "no_umap.h5ad"
+    adata.write_h5ad(path)
+
+    atlas = load_shahan_h5ad(path)
+
+    assert atlas.X_umap.shape == (30, 2)
+    assert np.all(atlas.X_umap == 0)
