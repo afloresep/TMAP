@@ -51,8 +51,12 @@ No torch, no fair-esm — ESM-2 inference happens in the user's own environment.
 """
 from __future__ import annotations
 
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+from tmap.utils.proteins import read_fasta
 
 HERE = Path(__file__).parent
 DATA_DIR = HERE / "data" / "endosymbiosis"
@@ -69,6 +73,50 @@ class ProteinRecord:
     source: str
     domain: str           # "Bacteria-alpha", "Bacteria-cyano", "Eukarya-mito", "Eukarya-cytosolic"
     compartment: str      # free-form; e.g. "matrix", "cytosol", "-"
+
+
+UNIPROT_STREAM = "https://rest.uniprot.org/uniprotkb/stream"
+
+
+def fetch_uniprot_proteome(
+    proteome_id: str,
+    *,
+    cache_dir: Path,
+    reviewed_only: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Fetch a UniProt reference proteome as FASTA, cached to disk.
+
+    Returns (accessions, sequences). Idempotent: subsequent calls read the
+    cached file and skip the network.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{proteome_id}.fasta"
+
+    if not cache_path.exists():
+        query = f"proteome:{proteome_id}"
+        if reviewed_only:
+            query += " AND reviewed:true"
+        params = urllib.parse.urlencode({
+            "query": query,
+            "format": "fasta",
+            "compressed": "false",
+        })
+        url = f"{UNIPROT_STREAM}?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "tmap2/0.1"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(cache_path, "wb") as f:
+            f.write(resp.read())
+
+    ids, seqs = read_fasta(cache_path)
+    accessions = [_parse_uniprot_accession(h) for h in ids]
+    return accessions, list(seqs)
+
+
+def _parse_uniprot_accession(header: str) -> str:
+    """From 'sp|P12345|NAME_SPC' or 'tr|Q9|NAME' return 'P12345' / 'Q9'."""
+    parts = header.split("|")
+    if len(parts) >= 2 and parts[0] in ("sp", "tr"):
+        return parts[1]
+    return header.split()[0]
 
 
 def main() -> None:
