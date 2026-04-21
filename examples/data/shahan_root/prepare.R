@@ -6,14 +6,19 @@
 # Preserves: X_pca (50 dims), X_umap, cell_type, celltype.anno, consensus_time,
 #            sample, orig.ident, and any *_mutant columns.
 #
-# Requirements: R >= 4.1, Seurat >= 4.0, SeuratDisk
+# Requirements: R >= 4.1, Seurat >= 4.0, SeuratDisk, R.utils
 #   install.packages("Seurat")
+#   install.packages("R.utils")
 #   remotes::install_github("mojaveazure/seurat-disk")
 
 suppressPackageStartupMessages({
   library(Seurat)
   library(SeuratDisk)
 })
+
+if (!requireNamespace("R.utils", quietly = TRUE)) {
+  stop("This script requires R.utils. Install it with: install.packages('R.utils')")
+}
 
 HERE <- dirname(normalizePath(sys.frame(1)$ofile))
 setwd(HERE)
@@ -55,7 +60,6 @@ message("Writing h5Seurat …")
 SaveH5Seurat(obj, filename = H5S, overwrite = TRUE)
 message("Converting to h5ad …")
 Convert(H5S, dest = "h5ad", overwrite = TRUE)
-file.rename(sub("\\.h5seurat$", ".h5ad", H5S), H5A)
 unlink(H5S)
 
 message("Done. Output: ", file.path(HERE, H5A))
