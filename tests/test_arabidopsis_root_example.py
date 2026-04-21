@@ -173,3 +173,20 @@ def test_plot_atlas_side_by_side_raises_on_too_many_classes(tmp_path):
             cell_types=cell_types,
             out_path=tmp_path / "toomany.png",
         )
+
+
+def test_marker_expression_along_path_returns_one_row_per_marker():
+    from arabidopsis_root_ground_tissue_tmap import marker_expression_along_path
+    rng = np.random.default_rng(0)
+    n_cells, n_genes = 20, 5
+    X = rng.random((n_cells, n_genes)).astype(np.float32)
+    gene_names = np.array(["SCR", "MYB36", "CASP1", "ACT2", "TUB"])
+    path = np.array([0, 3, 7, 11, 15, 19])
+
+    result = marker_expression_along_path(
+        expression=X, gene_names=gene_names, markers=("SCR", "CASP1"), path=path,
+    )
+
+    assert set(result.keys()) == {"SCR", "CASP1"}
+    assert result["SCR"].shape == (len(path),)
+    np.testing.assert_allclose(result["SCR"], X[path, 0])

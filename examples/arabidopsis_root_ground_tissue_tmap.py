@@ -24,6 +24,7 @@ from numpy.typing import NDArray
 from scipy.stats import spearmanr
 
 from tmap import TMAP
+from tmap.graph.analysis import edge_delta
 
 HERE = Path(__file__).parent
 DATA_PATH = HERE / "data" / "shahan_root" / "ground_tissue.h5ad"
@@ -154,6 +155,90 @@ def plot_atlas_side_by_side(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
+
+
+def marker_expression_along_path(
+    *,
+    expression: NDArray,
+    gene_names: NDArray,
+    markers: tuple[str, ...],
+    path: NDArray,
+) -> dict[str, NDArray]:
+    """Extract expression of each marker along the ordered cell path."""
+    name_to_col = {str(g): i for i, g in enumerate(gene_names)}
+    out: dict[str, NDArray] = {}
+    for m in markers:
+        if m not in name_to_col:
+            continue
+        col = name_to_col[m]
+        values = np.asarray(expression[path, col]).ravel().astype(np.float32)
+        out[m] = values
+    return out
+
+
+def plot_path_killshot(
+    *,
+    model: TMAP,
+    root: int,
+    target: int,
+    expression: NDArray,
+    gene_names: NDArray,
+    consensus_time: NDArray,
+    markers: tuple[str, ...] = ("SCR", "MYB36", "CASP1"),
+    out_path: Path,
+) -> dict[str, object]:
+    """Three panels: path on tree, marker sweep, edge_delta histogram.
+
+    Returns a dict with 'path', 'hops', 'markers' keys for downstream reporting.
+    """
+    tree = model.tree_
+    path = np.asarray(tree.path(root, target))
+    hops = len(path)
+
+    markers_along = marker_expression_along_path(
+        expression=expression, gene_names=gene_names, markers=markers, path=path,
+    )
+    deltas = edge_delta(tree, consensus_time)
+
+    layout = model.embedding_
+
+    fig = plt.figure(figsize=(14, 4.2), dpi=150)
+    gs = fig.add_gridspec(1, 3, width_ratios=(1.3, 1.2, 1.0))
+    ax_tree, ax_markers, ax_hist = (fig.add_subplot(gs[0, i]) for i in range(3))
+
+    ax_tree.scatter(layout[:, 0], layout[:, 1], c="lightgray", s=2, linewidths=0)
+    path_xy = layout[path]
+    ax_tree.plot(path_xy[:, 0], path_xy[:, 1], "-", lw=1.2, color="#222")
+    ax_tree.scatter(path_xy[:, 0], path_xy[:, 1],
+                    c=np.arange(hops), cmap="magma", s=14, zorder=3)
+    ax_tree.set_title(f"Tree path (QC → mature endodermis, {hops} hops)")
+    ax_tree.set_xticks([])
+    ax_tree.set_yticks([])
+    ax_tree.set_aspect("equal", adjustable="datalim")
+
+    for name, values in markers_along.items():
+        ax_markers.plot(np.arange(hops), values, marker="o", ms=3, label=name, lw=1.0)
+    ax_markers.set_xlabel("Hop index along path")
+    ax_markers.set_ylabel("Expression")
+    ax_markers.set_title("Marker expression along tree path")
+    ax_markers.legend(fontsize=8, frameon=False)
+
+    ax_hist.hist(np.abs(deltas), bins=40, color="#4c72b0")
+    ax_hist.set_title("|Δ consensus pseudotime| per tree edge")
+    ax_hist.set_xlabel("Absolute pseudotime delta per edge")
+    ax_hist.set_ylabel("Edges")
+
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+
+    return {
+        "path": path.tolist(),
+        "hops": hops,
+        "markers": {k: v.tolist() for k, v in markers_along.items()},
+        "edge_delta_mean": float(np.mean(np.abs(deltas))),
+    }
 
 
 def main() -> None:
