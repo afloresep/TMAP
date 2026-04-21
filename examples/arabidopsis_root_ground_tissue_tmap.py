@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+from scipy.spatial import cKDTree
 from scipy.stats import spearmanr
 
 from tmap import TMAP
@@ -250,9 +251,15 @@ def plot_mutant_projection(
     out_path: Path,
 ) -> dict[str, float]:
     """Project mutant cells onto the fitted WT tree via TMAP.transform() and
-    report per-cell-type enrichment (log-odds of WT vs mutant in each type).
+    report per-cell-type enrichment.
 
-    Returns the enrichment dict for downstream validation.
+    Each mutant cell is assigned to its nearest WT cell in the 2-D MST layout
+    (disjoint; one label per mutant). Enrichment is the Haldane-Anscombe-
+    corrected log-odds of WT vs mutant inside each label's subtree relative
+    to the rest of the tree. Positive = WT-enriched (mutant-depleted) in that
+    cell type.
+
+    Writes `out_path` as a PNG and returns the per-label enrichment dict.
     """
     coords_mutant = model.transform(X_pca_mutant.astype(np.float32, copy=False))
     coords_wt = model.embedding_
@@ -273,19 +280,19 @@ def plot_mutant_projection(
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
 
-    # Enrichment per WT cell-type (coarse version — no subtree walk).
+    # Assign each mutant cell to its nearest WT cell in the MST-derived 2-D
+    # layout — this is disjoint (one label per mutant) and uses tree structure
+    # via the layout coordinates (not an arbitrary Euclidean disk).
+    kd = cKDTree(coords_wt)
+    _, nearest_wt = kd.query(coords_mutant, k=1)
+    mutant_labels = np.asarray(cell_types_wt)[nearest_wt]
+
     is_mutant = np.concatenate([np.zeros(len(coords_wt), dtype=bool),
                                 np.ones(len(coords_mutant), dtype=bool)])
     enrichment: dict[str, float] = {}
     for label in sorted(set(cell_types_wt.tolist())):
-        # A "subtree" here = all cells of this WT label + mutants projected
-        # near them. We use nearest-WT-label as a proxy.
-        in_sub_wt = cell_types_wt == label
-        dists = np.linalg.norm(
-            coords_mutant[:, None, :] - coords_wt[None, in_sub_wt, :], axis=2
-        ).min(axis=1)
-        threshold = np.median(np.linalg.norm(coords_wt - coords_wt.mean(axis=0), axis=1))
-        in_sub_mut = dists < threshold
+        in_sub_wt  = cell_types_wt == label
+        in_sub_mut = mutant_labels == label
         in_subtree = np.concatenate([in_sub_wt, in_sub_mut])
         enrichment[label] = subtree_enrichment(in_subtree=in_subtree, is_mutant=is_mutant)
     return enrichment

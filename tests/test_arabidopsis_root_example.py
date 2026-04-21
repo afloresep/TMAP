@@ -222,14 +222,40 @@ def test_subtree_enrichment_log_odds():
     np.testing.assert_allclose(lor, np.log(10.5 / 2.5 * 20.5 / 10.5), atol=1e-6)
 
 
+def test_subtree_enrichment_handles_zero_mutants_inside():
+    """Haldane-Anscombe correction keeps log-odds finite when no mutant is
+    inside the subtree (b=0 raw → b=0.5 corrected)."""
+    from arabidopsis_root_ground_tissue_tmap import subtree_enrichment
+    in_subtree = np.array([True] * 5 + [False] * 10)
+    is_mutant  = np.array([False] * 5 + [False] * 3 + [True] * 7)
+    # Raw: a=5, b=0, c=3, d=7. Corrected: a=5.5, b=0.5, c=3.5, d=7.5.
+    # log((5.5/0.5)/(3.5/7.5)) = log(11.0 / 0.4667) = log(23.57) ≈ 3.160.
+    lor = subtree_enrichment(in_subtree=in_subtree, is_mutant=is_mutant)
+    assert np.isfinite(lor), "log-odds must be finite with Haldane-Anscombe correction"
+    np.testing.assert_allclose(lor, np.log(5.5 / 0.5 * 7.5 / 3.5), atol=1e-6)
+
+
 def test_plot_mutant_projection_runs_end_to_end(tmp_path):
     from arabidopsis_root_ground_tissue_tmap import plot_mutant_projection
 
     from tmap import TMAP
     rng = np.random.default_rng(0)
-    X_wt = rng.standard_normal((150, 10)).astype(np.float32)
-    X_mut = rng.standard_normal((30, 10)).astype(np.float32)
-    cell_types_wt = np.array(["QC"] * 30 + ["Cortex"] * 60 + ["Endodermis"] * 60)
+
+    # Three WT clusters, well-separated.
+    X_qc = rng.normal(0.0, 0.3, size=(50, 10)).astype(np.float32)
+    X_cortex = rng.normal(5.0, 0.3, size=(50, 10)).astype(np.float32)
+    X_endo = rng.normal(10.0, 0.3, size=(50, 10)).astype(np.float32)
+    X_wt = np.concatenate([X_qc, X_cortex, X_endo])
+    cell_types_wt = np.array(["QC"] * 50 + ["Cortex"] * 50 + ["Endodermis"] * 50)
+
+    # Mutants drawn from around QC and Endodermis only — Cortex should be
+    # strongly WT-enriched (positive log-odds); QC and Endodermis should be
+    # WT-depleted (negative log-odds).
+    X_mut = np.concatenate([
+        rng.normal(0.0, 0.3, size=(15, 10)),
+        rng.normal(10.0, 0.3, size=(15, 10)),
+    ]).astype(np.float32)
+
     model = TMAP(metric="cosine", n_neighbors=10, seed=0, store_index=True).fit(X_wt)
 
     out = tmp_path / "fig3.png"
@@ -240,5 +266,15 @@ def test_plot_mutant_projection_runs_end_to_end(tmp_path):
         cell_types_wt=cell_types_wt,
         out_path=out,
     )
+
     assert out.exists() and out.stat().st_size > 5_000
     assert set(enrichment.keys()) == {"QC", "Cortex", "Endodermis"}
+    assert all(np.isfinite(v) for v in enrichment.values())
+    # Cortex should be WT-enriched (mutants assigned to QC/Endo, not Cortex).
+    assert enrichment["Cortex"] > enrichment["QC"], (
+        f"Cortex (no mutants assigned) should be more WT-enriched than QC "
+        f"(mutants concentrated); got {enrichment}"
+    )
+    assert enrichment["Cortex"] > enrichment["Endodermis"], (
+        f"Cortex should be more WT-enriched than Endodermis; got {enrichment}"
+    )
