@@ -188,3 +188,21 @@ def test_load_external_embeddings_validates_shape_and_order(tmp_path):
     # Mismatched order must raise.
     with pytest.raises(ValueError, match="accession"):
         load_external_embeddings(npz, expected_accessions=["A", "C", "B"])
+
+
+def test_mito_to_alpha_path_stats_recovers_endosymbiotic_signal():
+    from endosymbiosis_mito_tmap import mito_to_alpha_path_stats
+
+    from tmap.graph.types import Tree
+
+    # Linear tree: mito(0) -- alpha(1) -- other(2) -- cyto(3).
+    # Hops: mito→alpha=1, mito→cyto=3.
+    edges = np.array([(0, 1), (1, 2), (2, 3)], dtype=np.int32)
+    weights = np.ones(3, dtype=np.float32)
+    tree = Tree(n_nodes=4, edges=edges, weights=weights)
+    sources = np.array(["mitocarta", "rickettsia", "pelagibacter", "yeast-cytosol"])
+
+    stats = mito_to_alpha_path_stats(tree=tree, sources=sources)
+    assert stats["median_hops_to_alpha"] == 1.0
+    assert stats["median_hops_to_cytosol"] == 3.0
+    assert stats["n_mito"] == 1

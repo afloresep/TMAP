@@ -320,6 +320,36 @@ def load_external_embeddings(
     return X, np.array(accs, dtype=object)
 
 
+def mito_to_alpha_path_stats(
+    *, tree, sources: NDArray,
+) -> dict[str, float]:
+    """For each mitocarta protein, measure the shortest tree path (in hops)
+    to the nearest α-proteobacterial protein and to the nearest yeast-cytosolic
+    protein. Return medians and the mito-sample count.
+    """
+    mito_idx   = np.where(sources == "mitocarta")[0]
+    alpha_idx  = np.where((sources == "rickettsia") | (sources == "pelagibacter"))[0]
+    cyto_idx   = np.where(sources == "yeast-cytosol")[0]
+
+    hops_to_alpha: list[int] = []
+    hops_to_cyto:  list[int] = []
+
+    for m in mito_idx:
+        best_alpha = min((len(tree.path(int(m), int(a))) - 1) for a in alpha_idx)
+        hops_to_alpha.append(best_alpha)
+        if len(cyto_idx):
+            best_cyto = min((len(tree.path(int(m), int(c))) - 1) for c in cyto_idx)
+            hops_to_cyto.append(best_cyto)
+
+    med_alpha = float(np.median(hops_to_alpha)) if hops_to_alpha else float("nan")
+    med_cyto  = float(np.median(hops_to_cyto))  if hops_to_cyto  else float("nan")
+    return {
+        "median_hops_to_alpha":   med_alpha,
+        "median_hops_to_cytosol": med_cyto,
+        "n_mito":                 float(len(mito_idx)),
+    }
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 
