@@ -119,6 +119,54 @@ def _parse_uniprot_accession(header: str) -> str:
     return header.split()[0]
 
 
+def load_mitocarta(xls_path: Path) -> list[ProteinRecord]:
+    """Parse the MitoCarta 3.0 spreadsheet; return ProteinRecord per entry.
+
+    Expects at minimum columns: 'UniProt', 'MitoCarta3.0_SubMitoLocalization'.
+    """
+    import io
+
+    import openpyxl
+    # MitoCarta ships as '.xls' but the file is actually OOXML (xlsx) under the
+    # hood. openpyxl's extension check rejects '.xls' — bypass it by handing
+    # off an in-memory BytesIO, which skips the filename-based format check.
+    buf = io.BytesIO(Path(xls_path).read_bytes())
+    wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+    # MitoCarta sheet names vary across minor versions; pick the first sheet
+    # whose row 1 contains 'UniProt'.
+    target = None
+    for name in wb.sheetnames:
+        ws = wb[name]
+        header = [c.value for c in next(ws.iter_rows(max_row=1))]
+        if "UniProt" in header:
+            target = (name, header)
+            break
+    if target is None:
+        raise ValueError(f"No sheet in {xls_path} has a 'UniProt' column.")
+
+    sheet_name, header = target
+    ws = wb[sheet_name]
+    ix_acc = header.index("UniProt")
+    ix_loc = (header.index("MitoCarta3.0_SubMitoLocalization")
+              if "MitoCarta3.0_SubMitoLocalization" in header else None)
+
+    out: list[ProteinRecord] = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        acc_raw = row[ix_acc]
+        if acc_raw in (None, ""):
+            continue
+        # UniProt column may list multiple accessions separated by '|'.
+        acc = str(acc_raw).split("|")[0].strip()
+        if not acc:
+            continue
+        loc = str(row[ix_loc]) if (ix_loc is not None and row[ix_loc] is not None) else "-"
+        out.append(ProteinRecord(
+            accession=acc, organism="Homo sapiens", source="mitocarta",
+            domain="Eukarya-mito", compartment=loc,
+        ))
+    return out
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 

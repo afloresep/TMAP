@@ -50,3 +50,26 @@ def test_parse_uniprot_accession():
     assert _parse_uniprot_accession("sp|P12345|TEST_HUMAN") == "P12345"
     assert _parse_uniprot_accession("tr|Q9NZC2|NAME_MOUSE") == "Q9NZC2"
     assert _parse_uniprot_accession("plain_id") == "plain_id"
+
+
+def test_load_mitocarta_returns_accessions_and_compartments(tmp_path):
+    import openpyxl
+    from endosymbiosis_mito_tmap import load_mitocarta
+
+    xlsx = tmp_path / "Human.MitoCarta3.0.xls"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "A Human MitoCarta3.0"
+    ws.append(["Symbol", "EnsemblGeneID", "UniProt", "MitoCarta3.0_SubMitoLocalization"])
+    ws.append(["COX1", "ENSG0", "P00395", "MIM_matrix"])
+    ws.append(["ATP5F1A", "ENSG1", "P25705", "MIM_matrix"])
+    ws.append(["TOMM20", "ENSG2", "Q15388", "OMM"])
+    wb.save(xlsx)
+
+    records = load_mitocarta(xlsx)
+    by_acc = {r.accession: r for r in records}
+    assert by_acc["P00395"].compartment == "MIM_matrix"
+    assert by_acc["P00395"].source == "mitocarta"
+    assert by_acc["P00395"].domain == "Eukarya-mito"
+    assert by_acc["P00395"].organism == "Homo sapiens"
+    assert set(by_acc.keys()) == {"P00395", "P25705", "Q15388"}
