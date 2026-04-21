@@ -130,7 +130,13 @@ def test_fit_tmap_with_pseudotime_returns_model_and_spearman():
 
     assert tmap_pt.shape == (n,)
     assert model.tree_ is not None
-    assert 0.7 < abs(spearman) <= 1.0, (
+    # Smoke test: cosine TMAP on this ramp-plus-noise synthetic data yields
+    # a strong |correlation| (typically ~0.8) with the reference pseudotime,
+    # but the sign depends on how the MST happens to orient relative to the
+    # QC-centroid root under cosine similarity. The strict sign + magnitude
+    # bar lives in --validate (>= 0.85 on real data).
+    assert abs(spearman) >= 0.75, (
         f"With a strong linear PCA signal + correct root in QC cells, the "
-        f"tree pseudotime should correlate with the reference; got {spearman:.3f}"
+        f"tree pseudotime should correlate strongly (in magnitude) with the "
+        f"reference; got {spearman:.3f}"
     )
