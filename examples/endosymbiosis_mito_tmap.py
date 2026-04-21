@@ -350,6 +350,25 @@ def mito_to_alpha_path_stats(
     }
 
 
+def alpha_branch_mito_fraction(
+    *, tree, sources: NDArray, radius: int = 2,
+) -> float:
+    """Fraction of mitocarta proteins within `radius` tree hops of any
+    α-proteobacterial protein.
+    """
+    mito_idx  = np.where(sources == "mitocarta")[0]
+    alpha_idx = np.where((sources == "rickettsia") | (sources == "pelagibacter"))[0]
+    if mito_idx.size == 0 or alpha_idx.size == 0:
+        return 0.0
+    n_close = 0
+    for m in mito_idx:
+        for a in alpha_idx:
+            if (len(tree.path(int(m), int(a))) - 1) <= radius:
+                n_close += 1
+                break
+    return float(n_close) / float(len(mito_idx))
+
+
 def main() -> None:
     raise NotImplementedError("Filled in later tasks.")
 

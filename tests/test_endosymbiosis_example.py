@@ -206,3 +206,24 @@ def test_mito_to_alpha_path_stats_recovers_endosymbiotic_signal():
     assert stats["median_hops_to_alpha"] == 1.0
     assert stats["median_hops_to_cytosol"] == 3.0
     assert stats["n_mito"] == 1
+
+
+def test_alpha_branch_mito_fraction_counts_mito_within_radius():
+    from endosymbiosis_mito_tmap import alpha_branch_mito_fraction
+
+    from tmap.graph.types import Tree
+
+    # Tree:    mito(0) -- alpha(1) -- alpha(2) -- cyto(3) -- mito(4)
+    # mito 0 is 1 hop from alpha → counted. mito 4 is 2 hops from alpha(2) → counted.
+    # Expected: 2 / 2 = 1.0 at radius 2.
+    edges = np.array([(0, 1), (1, 2), (2, 3), (3, 4)], dtype=np.int32)
+    weights = np.ones(4, dtype=np.float32)
+    tree = Tree(n_nodes=5, edges=edges, weights=weights)
+    sources = np.array(["mitocarta", "rickettsia", "pelagibacter",
+                        "yeast-cytosol", "mitocarta"])
+    frac = alpha_branch_mito_fraction(tree=tree, sources=sources, radius=2)
+    assert frac == 1.0
+
+    # Radius 1 → only mito 0 is within 1 hop of an alpha. → 0.5.
+    frac_tight = alpha_branch_mito_fraction(tree=tree, sources=sources, radius=1)
+    assert frac_tight == 0.5
