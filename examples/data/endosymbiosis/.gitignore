@@ -1,0 +1,8 @@
+*.fasta
+*.xls
+*.xlsx
+*.tsv
+*.npy
+*.npz
+*.pkl
+cache/
