@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import anndata as ad
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
@@ -110,6 +111,41 @@ def fit_tmap_with_pseudotime(
     finite = np.isfinite(consensus_time) & np.isfinite(tmap_pt)
     rho = float(spearmanr(tmap_pt[finite], consensus_time[finite]).statistic)
     return model, tmap_pt, rho
+
+
+def plot_atlas_side_by_side(
+    *,
+    X_umap: NDArray,
+    tmap_layout: NDArray,
+    cell_types: NDArray,
+    out_path: Path,
+) -> None:
+    """Two panels: Shahan's published UMAP vs our TMAP, same cells, same colors."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5), dpi=150)
+
+    unique = sorted(set(cell_types.tolist()))
+    cmap = plt.get_cmap("tab10")
+    color_by = {label: cmap(i % 10) for i, label in enumerate(unique)}
+    colors = np.array([color_by[c] for c in cell_types])
+
+    for ax, coords, title in (
+        (axes[0], X_umap, "Shahan et al. UMAP (published)"),
+        (axes[1], tmap_layout, "TMAP2 (this work)"),
+    ):
+        ax.scatter(coords[:, 0], coords[:, 1], c=colors, s=3, linewidths=0, alpha=0.7)
+        ax.set_title(title, fontsize=11)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_aspect("equal", adjustable="datalim")
+
+    handles = [plt.scatter([], [], c=[color_by[label]], s=24, label=label) for label in unique]
+    axes[1].legend(handles=handles, loc="upper left", bbox_to_anchor=(1.02, 1.0),
+                   fontsize=8, frameon=False)
+
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 def main() -> None:

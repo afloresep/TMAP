@@ -140,3 +140,17 @@ def test_fit_tmap_with_pseudotime_returns_model_and_spearman():
         f"tree pseudotime should correlate strongly (in magnitude) with the "
         f"reference; got {spearman:.3f}"
     )
+
+
+def test_plot_atlas_side_by_side_writes_file(tmp_path):
+    from arabidopsis_root_ground_tissue_tmap import plot_atlas_side_by_side
+    rng = np.random.default_rng(0)
+    n = 50
+    out = tmp_path / "fig1.png"
+    plot_atlas_side_by_side(
+        X_umap=rng.standard_normal((n, 2)).astype(np.float32),
+        tmap_layout=rng.standard_normal((n, 2)).astype(np.float32),
+        cell_types=np.array(["QC", "Cortex"] * 25),
+        out_path=out,
+    )
+    assert out.exists() and out.stat().st_size > 0
