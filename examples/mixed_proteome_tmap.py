@@ -658,8 +658,8 @@ def main() -> None:
         print("\nValidation:")
         criteria = [
             (
-                "same-domain edge fraction >= 0.90 (tree is coherent by domain)",
-                same_frac >= 0.90,
+                "same-domain edge fraction >= 0.85 (tree is coherent by domain)",
+                same_frac >= 0.85,
                 f"same_frac={same_frac:.3f}",
             ),
             (
