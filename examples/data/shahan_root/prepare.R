@@ -20,7 +20,20 @@ if (!requireNamespace("R.utils", quietly = TRUE)) {
   stop("This script requires R.utils. Install it with: install.packages('R.utils')")
 }
 
-HERE <- dirname(normalizePath(sys.frame(1)$ofile))
+# Resolve this script's directory across invocation modes:
+#   Rscript path/to/prepare.R      → commandArgs has "--file=..."
+#   source("prepare.R") interactive → sys.frame(1)$ofile available
+#   otherwise                       → fall back to getwd()
+args <- commandArgs(trailingOnly = FALSE)
+file_arg <- grep("^--file=", args, value = TRUE)
+if (length(file_arg) > 0) {
+  HERE <- dirname(normalizePath(sub("^--file=", "", file_arg[1])))
+} else if (!is.null(sys.frames()) && length(sys.frames()) > 0 &&
+           !is.null(sys.frame(1)$ofile)) {
+  HERE <- dirname(normalizePath(sys.frame(1)$ofile))
+} else {
+  HERE <- getwd()
+}
 setwd(HERE)
 
 URL  <- "https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE152766&format=file&file=GSE152766%5FGround%5FTissue%5FAtlas%2Erds%2Egz"
