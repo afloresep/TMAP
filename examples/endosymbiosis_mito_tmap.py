@@ -55,6 +55,7 @@ import argparse
 import csv
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -386,29 +387,53 @@ def load_external_embeddings(
     return X, np.array(accs, dtype=object)
 
 
+def _multi_source_bfs_hops(tree, source_mask: NDArray) -> NDArray:
+    """Hop count from every node in the tree to its nearest source (nodes where
+    source_mask is True). Multi-source BFS; returns int32 array of shape
+    (tree.n_nodes,) with a large sentinel for unreachable nodes.
+    """
+    n = tree.n_nodes
+    hops = np.full(n, np.iinfo(np.int32).max, dtype=np.int32)
+    queue: deque = deque()
+    for i in np.where(source_mask)[0]:
+        hops[int(i)] = 0
+        queue.append(int(i))
+    while queue:
+        node = queue.popleft()
+        for neighbor, _weight in tree.neighbors(node):
+            if hops[neighbor] > hops[node] + 1:
+                hops[neighbor] = hops[node] + 1
+                queue.append(int(neighbor))
+    return hops
+
+
 def mito_to_alpha_path_stats(
     *, tree, sources: NDArray,
 ) -> dict[str, float]:
     """For each mitocarta protein, measure the shortest tree path (in hops)
     to the nearest α-proteobacterial protein and to the nearest yeast-cytosolic
     protein. Return medians and the mito-sample count.
+
+    Implementation: two multi-source BFS passes, O(N) each, instead of
+    O(M × A) individual tree.path() calls.
     """
-    mito_idx   = np.where(sources == "mitocarta")[0]
-    alpha_idx  = np.where((sources == "rickettsia") | (sources == "pelagibacter"))[0]
-    cyto_idx   = np.where(sources == "yeast-cytosol")[0]
+    mito_idx  = np.where(sources == "mitocarta")[0]
+    alpha_mask = (sources == "rickettsia") | (sources == "pelagibacter")
+    cyto_mask  = sources == "yeast-cytosol"
 
-    hops_to_alpha: list[int] = []
-    hops_to_cyto:  list[int] = []
+    hops_alpha_all = _multi_source_bfs_hops(tree, alpha_mask)
+    hops_cyto_all  = _multi_source_bfs_hops(tree, cyto_mask) if cyto_mask.any() else None
 
-    for m in mito_idx:
-        best_alpha = min((len(tree.path(int(m), int(a))) - 1) for a in alpha_idx)
-        hops_to_alpha.append(best_alpha)
-        if len(cyto_idx):
-            best_cyto = min((len(tree.path(int(m), int(c))) - 1) for c in cyto_idx)
-            hops_to_cyto.append(best_cyto)
+    hops_alpha = hops_alpha_all[mito_idx]
+    hops_cyto  = hops_cyto_all[mito_idx] if hops_cyto_all is not None else np.array([])
 
-    med_alpha = float(np.median(hops_to_alpha)) if hops_to_alpha else float("nan")
-    med_cyto  = float(np.median(hops_to_cyto))  if hops_to_cyto  else float("nan")
+    # Filter out the unreachable sentinel values.
+    INF = np.iinfo(np.int32).max
+    finite_alpha = hops_alpha[hops_alpha < INF]
+    finite_cyto  = hops_cyto[hops_cyto < INF]
+
+    med_alpha = float(np.median(finite_alpha)) if finite_alpha.size else float("nan")
+    med_cyto  = float(np.median(finite_cyto))  if finite_cyto.size  else float("nan")
     return {
         "median_hops_to_alpha":   med_alpha,
         "median_hops_to_cytosol": med_cyto,
@@ -421,18 +446,16 @@ def alpha_branch_mito_fraction(
 ) -> float:
     """Fraction of mitocarta proteins within `radius` tree hops of any
     α-proteobacterial protein.
+
+    Implementation: one multi-source BFS, O(N), instead of M × A tree.path calls.
     """
     mito_idx  = np.where(sources == "mitocarta")[0]
-    alpha_idx = np.where((sources == "rickettsia") | (sources == "pelagibacter"))[0]
-    if mito_idx.size == 0 or alpha_idx.size == 0:
+    alpha_mask = (sources == "rickettsia") | (sources == "pelagibacter")
+    if mito_idx.size == 0 or not alpha_mask.any():
         return 0.0
-    n_close = 0
-    for m in mito_idx:
-        for a in alpha_idx:
-            if (len(tree.path(int(m), int(a))) - 1) <= radius:
-                n_close += 1
-                break
-    return float(n_close) / float(len(mito_idx))
+    hops_to_alpha = _multi_source_bfs_hops(tree, alpha_mask)
+    mito_hops = hops_to_alpha[mito_idx]
+    return float((mito_hops <= radius).sum()) / float(len(mito_idx))
 
 
 DOMAIN_PALETTE = {
@@ -609,13 +632,15 @@ def main() -> None:
     cyto_mask = sources == "yeast-cytosol"
 
     mito_idx = np.where(mito_mask)[0]
-    hops_alpha, hops_cyto = [], []
-    for m in mito_idx:
-        ha = min((len(tree.path(int(m), int(a))) - 1) for a in np.where(alpha_mask)[0])
-        hc = min((len(tree.path(int(m), int(c))) - 1) for c in np.where(cyto_mask)[0])
-        hops_alpha.append(ha)
-        hops_cyto.append(hc)
-    mw = mannwhitneyu(hops_alpha, hops_cyto, alternative="less")
+    hops_to_alpha_all = _multi_source_bfs_hops(tree, alpha_mask)
+    hops_to_cyto_all  = _multi_source_bfs_hops(tree, cyto_mask)
+    hops_alpha = hops_to_alpha_all[mito_idx]
+    hops_cyto  = hops_to_cyto_all[mito_idx]
+    INF = np.iinfo(np.int32).max
+    finite = (hops_alpha < INF) & (hops_cyto < INF)
+    hops_alpha_finite = hops_alpha[finite]
+    hops_cyto_finite  = hops_cyto[finite]
+    mw = mannwhitneyu(hops_alpha_finite, hops_cyto_finite, alternative="less")
 
     print(f"  median hops mito→α-proteo = {stats['median_hops_to_alpha']:.1f}")
     print(f"  median hops mito→cytosol  = {stats['median_hops_to_cytosol']:.1f}")
