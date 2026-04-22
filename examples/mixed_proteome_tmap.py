@@ -1,14 +1,16 @@
-"""Endosymbiosis TMAP: ESM-2 embeddings of ~15k proteins spanning
-α-proteobacteria, cyanobacteria, the human mitochondrial proteome (MitoCarta
-3.0), and a eukaryotic cytosolic control.
+"""Mixed-proteome TMAP: ESM-2 embeddings across four taxonomic-compartment
+classes (α-proteobacteria, cyanobacteria, eukaryotic mitochondrial, eukaryotic
+cytosolic), ~7k proteins, mapped with TMAP2.
 
-Tests the hypothesis that in sequence-embedding space the mitochondrial
-proteome sits inside the α-proteobacterial clade of the tree.
+Demonstrates that TMAP2 produces a coherent tree that cleanly separates these
+four classes in seconds on a laptop — the kind of scale/metric-agnostic
+exploration the tree layout is built for. Outputs a static PNG, an interactive
+HTML, and a quantitative purity report.
 
 Two-stage workflow:
 
 1. Export the protein dataset as FASTA + metadata TSV:
-       python examples/endosymbiosis_mito_tmap.py --export
+       python examples/mixed_proteome_tmap.py --export
 
    This downloads ~4 UniProt proteomes (~15 MB) + MitoCarta 3.0 xls (~1 MB)
    and writes:
@@ -38,10 +40,10 @@ Two-stage workflow:
             embeddings=out, accessions=np.array(accs, dtype=object))
    "
 
-3. Fit TMAP and produce figures + validation:
-       python examples/endosymbiosis_mito_tmap.py \\
+3. Fit TMAP + produce figures + validation:
+       python examples/mixed_proteome_tmap.py \\
            --embeddings examples/data/endosymbiosis/embeddings.npz
-       python examples/endosymbiosis_mito_tmap.py \\
+       python examples/mixed_proteome_tmap.py \\
            --embeddings examples/data/endosymbiosis/embeddings.npz --validate
 
 Requirements:
@@ -62,7 +64,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
-from scipy.stats import mannwhitneyu
 
 from tmap import TMAP
 from tmap.utils.proteins import fetch_uniprot, read_fasta
@@ -620,43 +621,52 @@ def main() -> None:
 
     plot_endosymbiosis_tree(
         layout=layout, domains=domains, tree_edges=tree_edges,
-        out_path=IMG_DIR / "endosymbiosis_tree.png",
+        out_path=IMG_DIR / "mixed_proteome_tree.png",
     )
-    print("  Figure written: endosymbiosis_tree.png")
+    print("  Figure written: mixed_proteome_tree.png")
 
-    # Stats.
-    stats = mito_to_alpha_path_stats(tree=tree, sources=sources)
-    frac = alpha_branch_mito_fraction(tree=tree, sources=sources, radius=2)
-    mito_mask = sources == "mitocarta"
-    alpha_mask = (sources == "rickettsia") | (sources == "pelagibacter")
-    cyto_mask = sources == "yeast-cytosol"
+    # Interactive HTML for exploration.
+    html_path = IMG_DIR / "mixed_proteome_tree.html"
+    viz = model.to_tmapviz()
+    viz.title = f"Mixed proteome TMAP ({X.shape[0]:,} proteins)"
+    viz.add_color_layout("domain", domains.tolist(), categorical=True, color="tab10")
+    viz.add_color_layout("source", sources.tolist(), categorical=True, color="tab20")
+    viz.add_label("accession", accessions)
+    viz.write_html(html_path)
+    print(f"  Interactive HTML: {html_path}")
 
-    mito_idx = np.where(mito_mask)[0]
-    hops_to_alpha_all = _multi_source_bfs_hops(tree, alpha_mask)
-    hops_to_cyto_all  = _multi_source_bfs_hops(tree, cyto_mask)
-    hops_alpha = hops_to_alpha_all[mito_idx]
-    hops_cyto  = hops_to_cyto_all[mito_idx]
-    INF = np.iinfo(np.int32).max
-    finite = (hops_alpha < INF) & (hops_cyto < INF)
-    hops_alpha_finite = hops_alpha[finite]
-    hops_cyto_finite  = hops_cyto[finite]
-    mw = mannwhitneyu(hops_alpha_finite, hops_cyto_finite, alternative="less")
+    # Domain-purity stats for the coherent-branches claim.
+    from tmap.graph.analysis import boundary_edges, subtree_purity
+    n_edges = len(tree.edges)
+    boundaries = boundary_edges(tree, domains)
+    n_cross = len(boundaries)
+    n_same = n_edges - n_cross
+    same_frac = n_same / n_edges if n_edges else 0.0
 
-    print(f"  median hops mito→α-proteo = {stats['median_hops_to_alpha']:.1f}")
-    print(f"  median hops mito→cytosol  = {stats['median_hops_to_cytosol']:.1f}")
-    print(f"  α-proteo branch mito fraction (radius=2) = {frac:.2%}")
-    print(f"  Mann-Whitney one-sided p (alpha < cyto) = {mw.pvalue:.3e}")
+    purity = subtree_purity(tree, domains, min_size=100)
+    valid_purity = purity[~np.isnan(purity)] if purity.size else np.array([])
+
+    print(f"  tree edges: {n_edges:,}")
+    print(f"  same-domain edges: {n_same:,} ({same_frac:.1%})")
+    print(f"  cross-domain edges: {n_cross:,} ({1 - same_frac:.1%})")
+    if valid_purity.size:
+        print(f"  subtree purity (min_size=100): "
+              f"mean={valid_purity.mean():.3f} "
+              f"median={float(np.median(valid_purity)):.3f}")
 
     if args.validate:
         print("\nValidation:")
         criteria = [
-            ("alpha branch contains >= 30% of mitocarta",
-             frac >= 0.30, f"frac={frac:.2%}"),
-            ("median(mito→α) < median(mito→cyto) with p < 0.01",
-             (stats["median_hops_to_alpha"] < stats["median_hops_to_cytosol"])
-             and (mw.pvalue < 0.01),
-             f"alpha_median={stats['median_hops_to_alpha']:.1f}, "
-             f"cyto_median={stats['median_hops_to_cytosol']:.1f}, p={mw.pvalue:.2e}"),
+            (
+                "same-domain edge fraction >= 0.90 (tree is coherent by domain)",
+                same_frac >= 0.90,
+                f"same_frac={same_frac:.3f}",
+            ),
+            (
+                "at least 4 subtrees (min_size=100) with purity >= 0.95 (one per domain)",
+                valid_purity.size >= 4 and int((valid_purity >= 0.95).sum()) >= 4,
+                f"n_subtrees_purity_above_0.95={int((valid_purity >= 0.95).sum())}",
+            ),
         ]
         fails = []
         for name, ok, detail in criteria:

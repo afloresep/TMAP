@@ -13,7 +13,7 @@ import pytest
 EXAMPLES = Path(__file__).parent.parent / "examples"
 sys.path.insert(0, str(EXAMPLES))
 
-from endosymbiosis_mito_tmap import ProteinRecord  # noqa: E402
+from mixed_proteome_tmap import ProteinRecord  # noqa: E402
 
 
 def test_protein_record_minimal_construction():
@@ -26,7 +26,7 @@ def test_protein_record_minimal_construction():
 
 
 def test_fetch_uniprot_proteome_uses_cache_file(tmp_path, monkeypatch):
-    from endosymbiosis_mito_tmap import fetch_uniprot_proteome
+    from mixed_proteome_tmap import fetch_uniprot_proteome
 
     # Pre-populate the cache — the function must NOT hit the network.
     cache = tmp_path / "UP000002480.fasta"
@@ -49,7 +49,7 @@ def test_fetch_uniprot_proteome_uses_cache_file(tmp_path, monkeypatch):
 
 
 def test_parse_uniprot_accession():
-    from endosymbiosis_mito_tmap import _parse_uniprot_accession
+    from mixed_proteome_tmap import _parse_uniprot_accession
     assert _parse_uniprot_accession("sp|P12345|TEST_HUMAN") == "P12345"
     assert _parse_uniprot_accession("tr|Q9NZC2|NAME_MOUSE") == "Q9NZC2"
     assert _parse_uniprot_accession("plain_id") == "plain_id"
@@ -57,7 +57,7 @@ def test_parse_uniprot_accession():
 
 def test_load_mitocarta_returns_accessions_and_compartments(tmp_path):
     import openpyxl
-    from endosymbiosis_mito_tmap import load_mitocarta
+    from mixed_proteome_tmap import load_mitocarta
 
     xlsx = tmp_path / "Human.MitoCarta3.0.xls"
     wb = openpyxl.Workbook()
@@ -79,7 +79,7 @@ def test_load_mitocarta_returns_accessions_and_compartments(tmp_path):
 
 
 def test_filter_cytosolic_drops_organellar_targeting(monkeypatch):
-    from endosymbiosis_mito_tmap import filter_cytosolic
+    from mixed_proteome_tmap import filter_cytosolic
 
     annotations = {
         "P00001": "SUBCELLULAR LOCATION: Cytoplasm.",
@@ -95,14 +95,14 @@ def test_filter_cytosolic_drops_organellar_targeting(monkeypatch):
                 [annotations.get(i, "") for i in ids], dtype=object,
             ),
         }
-    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot", fake_fetch)
+    monkeypatch.setattr("mixed_proteome_tmap.fetch_uniprot", fake_fetch)
 
     kept = filter_cytosolic(list(annotations.keys()))
     assert set(kept) == {"P00001", "P00004"}
 
 
 def test_build_endosymbiosis_dataset_assembles_all_sources(tmp_path, monkeypatch):
-    from endosymbiosis_mito_tmap import ProteinRecord, build_endosymbiosis_dataset
+    from mixed_proteome_tmap import ProteinRecord, build_endosymbiosis_dataset
 
     def fake_proteome(pid, *, cache_dir, reviewed_only=False):
         return ([f"{pid}_A", f"{pid}_B"], ["MAAA", "MBBB"])
@@ -114,16 +114,16 @@ def test_build_endosymbiosis_dataset_assembles_all_sources(tmp_path, monkeypatch
     def fake_cytosolic_filter(ids, **_):
         return [ids[0]]  # keep the first yeast ID only
 
-    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot_proteome", fake_proteome)
-    monkeypatch.setattr("endosymbiosis_mito_tmap.load_mitocarta", fake_mitocarta)
-    monkeypatch.setattr("endosymbiosis_mito_tmap.filter_cytosolic", fake_cytosolic_filter)
+    monkeypatch.setattr("mixed_proteome_tmap.fetch_uniprot_proteome", fake_proteome)
+    monkeypatch.setattr("mixed_proteome_tmap.load_mitocarta", fake_mitocarta)
+    monkeypatch.setattr("mixed_proteome_tmap.filter_cytosolic", fake_cytosolic_filter)
     # Fake MitoCarta sequence fetch: return a dict with `sequence` per accession.
     def fake_fetch(ids, **_):
         return {
             "accession": np.array(ids, dtype=object),
             "sequence": np.array(["MCCC"] * len(ids), dtype=object),
         }
-    monkeypatch.setattr("endosymbiosis_mito_tmap.fetch_uniprot", fake_fetch)
+    monkeypatch.setattr("mixed_proteome_tmap.fetch_uniprot", fake_fetch)
 
     records, sequences = build_endosymbiosis_dataset(cache_dir=tmp_path)
 
@@ -135,7 +135,7 @@ def test_build_endosymbiosis_dataset_assembles_all_sources(tmp_path, monkeypatch
 
 
 def test_write_dataset_fasta_preserves_accession_order(tmp_path):
-    from endosymbiosis_mito_tmap import ProteinRecord, write_dataset_fasta
+    from mixed_proteome_tmap import ProteinRecord, write_dataset_fasta
 
     records = [
         ProteinRecord(accession="A1", organism="Org1", source="rickettsia",
@@ -155,7 +155,7 @@ def test_write_dataset_fasta_preserves_accession_order(tmp_path):
 
 
 def test_write_dataset_metadata_tsv_columns(tmp_path):
-    from endosymbiosis_mito_tmap import ProteinRecord, write_dataset_metadata_tsv
+    from mixed_proteome_tmap import ProteinRecord, write_dataset_metadata_tsv
 
     records = [
         ProteinRecord(accession="P00395", organism="Homo sapiens", source="mitocarta",
@@ -174,7 +174,7 @@ def test_write_dataset_metadata_tsv_columns(tmp_path):
 
 
 def test_load_external_embeddings_validates_shape_and_order(tmp_path):
-    from endosymbiosis_mito_tmap import load_external_embeddings
+    from mixed_proteome_tmap import load_external_embeddings
 
     npz = tmp_path / "emb.npz"
     np.savez(npz,
@@ -191,7 +191,7 @@ def test_load_external_embeddings_validates_shape_and_order(tmp_path):
 
 
 def test_mito_to_alpha_path_stats_recovers_endosymbiotic_signal():
-    from endosymbiosis_mito_tmap import mito_to_alpha_path_stats
+    from mixed_proteome_tmap import mito_to_alpha_path_stats
 
     from tmap.graph.types import Tree
 
@@ -209,7 +209,7 @@ def test_mito_to_alpha_path_stats_recovers_endosymbiotic_signal():
 
 
 def test_alpha_branch_mito_fraction_counts_mito_within_radius():
-    from endosymbiosis_mito_tmap import alpha_branch_mito_fraction
+    from mixed_proteome_tmap import alpha_branch_mito_fraction
 
     from tmap.graph.types import Tree
 
@@ -230,7 +230,7 @@ def test_alpha_branch_mito_fraction_counts_mito_within_radius():
 
 
 def test_plot_endosymbiosis_tree_writes_png(tmp_path):
-    from endosymbiosis_mito_tmap import plot_endosymbiosis_tree
+    from mixed_proteome_tmap import plot_endosymbiosis_tree
 
     rng = np.random.default_rng(0)
     n = 60
