@@ -48,3 +48,4 @@ examples/data/
 # Generated outputs
 *.html
 !src/tmap/visualization/templates/*.html.j2
+notebooks/data/
