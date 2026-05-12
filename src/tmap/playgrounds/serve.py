@@ -71,8 +71,36 @@ def build_app(registry: dict[str, Playground]) -> FastAPI:
 
 
 def default_registry() -> dict[str, Playground]:
-    """Populated by individual playground modules in subsequent tasks."""
-    return {}
+    """Return the registry of available playgrounds, populated from cached data."""
+    reg: dict[str, Playground] = {}
+    root = Path(__file__).resolve().parents[3] / "examples" / "data" / "word50k_cache"
+    model_path = root / "word_tmap.model"
+    if model_path.exists():
+        from .word import WordPlayground
+        embed_fn = _make_word_embed_fn()
+        reg["words"] = WordPlayground(
+            model_path,
+            root / "word_list.npy",
+            root / "word_categories.npy",
+            embed_fn,
+        )
+    return reg
+
+
+def _make_word_embed_fn():
+    """Return a callable str -> np.ndarray encoding a word with the TMAP's sentence model."""
+    from functools import lru_cache
+
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+
+    @lru_cache(maxsize=1)
+    def _model():
+        return SentenceTransformer("all-MiniLM-L6-v2")
+
+    def _encode(word: str) -> np.ndarray:
+        return _model().encode([word], normalize_embeddings=True)[0].astype("float32")
+    return _encode
 
 
 def main():

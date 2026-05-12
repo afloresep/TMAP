@@ -44,8 +44,25 @@ Thumbs.db
 *.pkl
 data/
 examples/data/
+!examples/data/
+examples/data/*
+!examples/data/lee_lifecycle_seedling_3d/
+examples/data/lee_lifecycle_seedling_3d/*
+!examples/data/lee_lifecycle_seedling_3d/.gitignore
+!examples/data/lee_lifecycle_seedling_3d/prepare.R
+!examples/data/lee_lifecycle_seedling_3d/build_h5ad.py
+!examples/data/ch103_lineage/
+examples/data/ch103_lineage/*
+!examples/data/ch103_lineage/.gitignore
+!examples/data/ch103_lineage/uca_vhdjh_liao2013.fasta
 
 # Generated outputs
 *.html
 !src/tmap/visualization/templates/*.html.j2
 notebooks/data/
+
+# Generated playground static bundles (built by scripts/build_*_playground.py)
+src/tmap/playgrounds/static/words/
+src/tmap/playgrounds/static/chembl/
+src/tmap/playgrounds/static/spike/
+src/tmap/playgrounds/static/proteins/
