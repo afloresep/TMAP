@@ -84,6 +84,13 @@ def default_registry() -> dict[str, Playground]:
             root / "word_categories.npy",
             embed_fn,
         )
+    chembl_root = Path(__file__).resolve().parents[3] / "data" / "chembl"
+    if (chembl_root / "chembl_full.tmap").exists():
+        from .chembl import ChemblPlayground
+        reg["chembl"] = ChemblPlayground(
+            chembl_root / "chembl_full.tmap",
+            chembl_root / "chembl_full_meta.parquet",
+        )
     return reg
 
 
