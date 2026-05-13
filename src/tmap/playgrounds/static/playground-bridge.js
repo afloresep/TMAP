@@ -54,6 +54,11 @@
     }
   }
 
+  // Trigger a resize when the iframe is loaded — regl-scatterplot needs to recompute its canvas.
+  window.addEventListener("load", () => {
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+  });
+
   function attach() {
     const sp = getSP();
     if (!sp) { setTimeout(attach, 300); return; }
