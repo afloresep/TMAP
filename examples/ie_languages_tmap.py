@@ -112,6 +112,78 @@ def ensure_iecor_cldf(
     return dest_dir
 
 
+def build_cognate_atlas(cldf_dir: Path = CLDF_DIR) -> CognateAtlas:
+    """Parse CLDF tables -> cognate feature sets per language.
+
+    Each language is represented as a set of "<concept_id>::<cognate_class>"
+    tokens, one per (concept, cognate-class) it participates in. Jaccard between
+    two such sets measures shared cognate vocabulary.
+    """
+    import csv
+
+    # Languages -- use IE-CoR's `Clade` column for the subgroup.
+    lang_rows: dict[str, LangMeta] = {}
+    with (cldf_dir / "languages.csv").open() as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            lid = row.get("ID") or row.get("Language_ID")
+            if not lid:
+                continue
+            lang_rows[lid] = LangMeta(
+                glottocode=row.get("Glottocode", "") or "",
+                name=row.get("Name", "") or lid,
+                family=row.get("Family", "") or "Indo-European",
+                subgroup=row.get("Clade") or row.get("SubGroup") or "Other",
+            )
+
+    # Forms -- form_id -> (language_id, concept_id)
+    form_to_lang_concept: dict[str, tuple[str, str]] = {}
+    with (cldf_dir / "forms.csv").open() as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            fid = row.get("ID")
+            lid = row.get("Language_ID")
+            cid = row.get("Parameter_ID") or row.get("Concept_ID")
+            if fid and lid and cid:
+                form_to_lang_concept[fid] = (lid, cid)
+
+    # Cognates -- build per-language token sets from form -> cognate-class links
+    tokens_by_lang: dict[str, set[str]] = {lid: set() for lid in lang_rows}
+    with (cldf_dir / "cognates.csv").open() as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            fid = row.get("Form_ID")
+            cog = row.get("Cognateset_ID") or row.get("Cognate_Class")
+            if not fid or not cog:
+                continue
+            lc = form_to_lang_concept.get(fid)
+            if not lc:
+                continue
+            lid, cid = lc
+            if lid in tokens_by_lang:
+                tokens_by_lang[lid].add(f"{cid}::{cog}")
+
+    names: list[str] = []
+    sets: list[list[str]] = []
+    fams: list[str] = []
+    subs: list[str] = []
+    for lid, meta in lang_rows.items():
+        toks = sorted(tokens_by_lang.get(lid, set()))
+        if not toks:
+            continue
+        names.append(lid)
+        sets.append(toks)
+        fams.append(meta.family)
+        subs.append(meta.subgroup)
+
+    return CognateAtlas(
+        names=names,
+        cognate_sets=sets,
+        families=np.asarray(fams, dtype=object),
+        subgroups=np.asarray(subs, dtype=object),
+    )
+
+
 def main() -> None:
     raise NotImplementedError("Filled in by later tasks.")
 
