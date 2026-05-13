@@ -12,6 +12,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse  # noqa: F401
+import gzip
 import json  # noqa: F401
 import urllib.request  # noqa: F401
 from dataclasses import dataclass, field
@@ -26,11 +27,17 @@ from scipy.stats import spearmanr  # noqa: F401
 HERE = Path(__file__).parent
 DATA_DIR = HERE / "data" / "flu_h3n2"
 AUSPICE_JSON = DATA_DIR / "h3n2_ha_12y.json"
+# Sidecar file: newer Nextstrain builds omit root_sequence from the main JSON.
+# The root-sequence is served separately; confirmed 200 at 2026-05-13.
+ROOT_SEQ_JSON = DATA_DIR / "h3n2_ha_12y_root-sequence.json"
 FASTA_PATH = DATA_DIR / "h3n2_ha_12y_sequences.fasta"
 IMG_PATH = HERE.parent / "paper" / "images" / "flu_h3n2_ha_tmap.png"
 REPORT_PATH = HERE / "flu_h3n2_ha_report.txt"
 
+# Primary URL confirmed 200 at 2026-05-13 (content-encoding: gzip, ~405 KB compressed).
 AUSPICE_URL = "https://data.nextstrain.org/flu_seasonal_h3n2_ha_12y.json"
+# Sidecar root-sequence: confirmed 200 at 2026-05-13 (content-length: 1046 compressed).
+ROOT_SEQ_URL = "https://data.nextstrain.org/flu_seasonal_h3n2_ha_12y_root-sequence.json"
 # Fallback (current canonical path; verify with `curl -sI`):
 FASTA_URL = "https://data.nextstrain.org/files/workflows/seasonal-flu/h3n2/ha/12y/sequences.fasta.xz"
 
@@ -105,13 +112,28 @@ def collect_tips(node: dict, out: list[dict] | None = None) -> list[dict]:
     return out
 
 
-def load_auspice_h3n2(path: Path = AUSPICE_JSON) -> tuple[dict, str, list[StrainMeta]]:
-    """Load the Auspice JSON; return (tree_root, root_HA1_aa, tip metadata)."""
+def load_auspice_h3n2(
+    path: Path = AUSPICE_JSON,
+    root_seq_path: Path = ROOT_SEQ_JSON,
+) -> tuple[dict, str, list[StrainMeta]]:
+    """Load the Auspice JSON and sidecar root-sequence.
+
+    Returns (tree_root, root_HA1_aa, tip_metadata).
+
+    Newer Nextstrain builds omit root_sequence from the main JSON and serve it
+    in a separate sidecar file. We load both and merge them here.
+    """
     with path.open() as f:
         data = json.load(f)
     tree = data["tree"]
-    # Reference HA1 AA sequence:
-    root_seq = data["root_sequence"]["HA1"]
+    # Reference HA1 AA sequence — try inline first, then sidecar.
+    inline_root = data.get("root_sequence") or {}
+    if inline_root.get("HA1"):
+        root_seq = inline_root["HA1"]
+    else:
+        with root_seq_path.open() as f:
+            root_data = json.load(f)
+        root_seq = root_data["HA1"]
     tips = collect_tips(tree)
     meta: list[StrainMeta] = []
     for t in tips:
@@ -129,6 +151,39 @@ def load_auspice_h3n2(path: Path = AUSPICE_JSON) -> tuple[dict, str, list[Strain
             )
         )
     return tree, root_seq, meta
+
+
+def _download(url: str, dest: Path) -> None:
+    """Download `url` to `dest` if not already present. Skips on cache hit.
+
+    Transparently decompresses gzip-encoded responses so the file on disk is
+    always the raw (uncompressed) content — no special handling needed at load
+    time.
+    """
+    if dest.exists() and dest.stat().st_size > 0:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading {url} -> {dest} ...", flush=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    with urllib.request.urlopen(url) as resp:
+        raw = resp.read()
+    # Decompress if the server sent gzip bytes (magic bytes 1f 8b).
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    tmp.write_bytes(raw)
+    tmp.rename(dest)
+
+
+def ensure_auspice_json(path: Path = AUSPICE_JSON, url: str = AUSPICE_URL) -> Path:
+    _download(url, path)
+    return path
+
+
+def ensure_root_sequence_json(
+    path: Path = ROOT_SEQ_JSON, url: str = ROOT_SEQ_URL
+) -> Path:
+    _download(url, path)
+    return path
 
 
 def main() -> None:
