@@ -71,8 +71,47 @@ def build_app(registry: dict[str, Playground]) -> FastAPI:
 
 
 def default_registry() -> dict[str, Playground]:
-    """Return the registry of available playgrounds, populated from cached data."""
+    """Return the registry of available playgrounds, populated from cached data.
+
+    Numba-backed playgrounds (spike) are registered before playgrounds that load
+    PyTorch (word). PyTorch's OpenMP initialisation conflicts with numba's parallel
+    runtime when both are active in the same process, so numba must be warmed up
+    first. The warmup query also ensures the LSH forest JIT code is compiled before
+    uvicorn's async worker loop begins; without it, the first HTTP query triggers
+    numba JIT compilation inside an async worker thread and segfaults.
+    """
     reg: dict[str, Playground] = {}
+
+    # --- Spike (numba / LSH Forest) -- must be registered BEFORE word/ST loads PyTorch ---
+    spike_root = (
+        Path(__file__).resolve().parents[3] / "examples" / "data" / "sars_cov2_spike" / "playground"
+    )
+    if (spike_root / "spike.tmap").exists():
+        from .spike import SpikePlayground, _load_df, _load_model, _norm_cached
+        pg = SpikePlayground(spike_root / "spike.tmap", spike_root / "spike_meta.parquet")
+        model = _load_model(str(spike_root / "spike.tmap"))
+        _load_df(str(spike_root / "spike_meta.parquet"))
+        _norm_cached(str(spike_root / "spike.tmap"))
+        try:
+            df = _load_df(str(spike_root / "spike_meta.parquet"))
+            first_seq = str(df.iloc[0]["sequence"])
+            k = getattr(pg, "_k", 6)
+            warmup_kmer = [[first_seq[i:i + k] for i in range(len(first_seq) - k + 1)]]
+            model.kneighbors(warmup_kmer)
+        except Exception:
+            pass  # Warmup is best-effort; a failure here should not block serving
+        reg["spike"] = pg
+
+    # --- ChEMBL (USearch / no numba) ---
+    chembl_root = Path(__file__).resolve().parents[3] / "data" / "chembl"
+    if (chembl_root / "chembl_full.tmap").exists():
+        from .chembl import ChemblPlayground
+        reg["chembl"] = ChemblPlayground(
+            chembl_root / "chembl_full.tmap",
+            chembl_root / "chembl_full_meta.parquet",
+        )
+
+    # --- Words (sentence-transformers / PyTorch) -- keep last to avoid OMP conflict ---
     root = Path(__file__).resolve().parents[3] / "examples" / "data" / "word50k_cache"
     model_path = root / "word_tmap.model"
     if model_path.exists():
@@ -84,13 +123,7 @@ def default_registry() -> dict[str, Playground]:
             root / "word_categories.npy",
             embed_fn,
         )
-    chembl_root = Path(__file__).resolve().parents[3] / "data" / "chembl"
-    if (chembl_root / "chembl_full.tmap").exists():
-        from .chembl import ChemblPlayground
-        reg["chembl"] = ChemblPlayground(
-            chembl_root / "chembl_full.tmap",
-            chembl_root / "chembl_full_meta.parquet",
-        )
+
     return reg
 
 
