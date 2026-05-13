@@ -31,8 +31,9 @@
       ((nx - view[0]) / (view[2] - view[0])) * W,
       (1 - (ny - view[1]) / (view[3] - view[1])) * H,
     ];
-    ctx.strokeStyle = "#ff3333";
-    ctx.lineWidth = 2.5 * dpr;
+    // 1. Draw the line connecting all nodes.
+    ctx.strokeStyle = "rgba(255, 51, 51, 0.85)";
+    ctx.lineWidth = 3 * dpr;
     ctx.lineJoin = "round";
     ctx.beginPath();
     const [sx, sy] = toScr(pathNodes[0].nx, pathNodes[0].ny);
@@ -42,14 +43,26 @@
       ctx.lineTo(px, py);
     }
     ctx.stroke();
-    for (const n of [pathNodes[0], pathNodes[pathNodes.length - 1]]) {
-      const [px, py] = toScr(n.nx, n.ny);
+    // 2. Draw a red ball at every intermediate node.
+    for (let i = 1; i < pathNodes.length - 1; i++) {
+      const [px, py] = toScr(pathNodes[i].nx, pathNodes[i].ny);
       ctx.beginPath();
       ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = "#ff3333";
       ctx.fill();
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+    }
+    // 3. Draw larger highlighted endpoints.
+    for (const node of [pathNodes[0], pathNodes[pathNodes.length - 1]]) {
+      const [px, py] = toScr(node.nx, node.ny);
+      ctx.beginPath();
+      ctx.arc(px, py, 9 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff0033";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5 * dpr;
       ctx.stroke();
     }
   }
