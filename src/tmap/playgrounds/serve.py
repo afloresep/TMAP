@@ -124,7 +124,38 @@ def default_registry() -> dict[str, Playground]:
             embed_fn,
         )
 
+    # --- Proteins (ESM-2 / PyTorch) -- registered last; ESM-2 also uses PyTorch ---
+    prot_root = (
+        Path(__file__).resolve().parents[3]
+        / "examples" / "data" / "endosymbiosis" / "playground"
+    )
+    if (prot_root / "proteins.tmap").exists():
+        from .protein import ProteinPlayground, make_esm2_encoder
+        try:
+            encode = make_esm2_encoder()  # eager: loads ESM-2 once at startup
+        except Exception as e:
+            print(f"[playgrounds] skipping proteins playground (ESM-2 failed to load: {e})")
+        else:
+            reg["proteins"] = ProteinPlayground(
+                prot_root / "proteins.tmap",
+                prot_root / "proteins_meta.parquet",
+                encode_fn=encode,
+                gallery_items=_load_gallery(),
+            )
+
     return reg
+
+
+def _load_gallery() -> list[dict[str, str]]:
+    """Load curated 'famous proteins' from gallery.json if present."""
+    import json
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "examples" / "data" / "endosymbiosis" / "playground" / "gallery.json"
+    )
+    if path.exists():
+        return json.loads(path.read_text())
+    return []
 
 
 def _make_word_embed_fn():
