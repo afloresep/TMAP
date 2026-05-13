@@ -62,7 +62,9 @@ def reconstruct_tip_sequences(
     """Walk the Auspice tree from root, applying inherited AA mutations.
 
     Mutation format is e.g. "T2L" (parent=T, position=2 (1-based), child=L).
-    Returns a {tip_name: reconstructed_aa_seq} mapping for all tips.
+    Returns a {node_name: reconstructed_aa_seq} mapping for every node in
+    the tree (leaves and internal). Downstream callers typically iterate
+    over the leaf list from `collect_tips` and look up by name.
     """
     out: dict[str, str] = {}
 
