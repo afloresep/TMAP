@@ -1,0 +1,9 @@
+Seasonal influenza H3N2 HA TMAP (Pass A)
+Tips in atlas: 1,598
+k-mer size (AA): 5
+TMAP: metric=jaccard, n_neighbors=60, n_permutations=512
+
+Tree-hops ordering proxy:
+  Spearman(hops from oldest tip, collection date) = 0.890
+
+PNG: /Users/afloresep/work/tmap2/paper/images/flu_h3n2_ha_tmap.png
