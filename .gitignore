@@ -55,6 +55,11 @@ examples/data/lee_lifecycle_seedling_3d/*
 examples/data/ch103_lineage/*
 !examples/data/ch103_lineage/.gitignore
 !examples/data/ch103_lineage/uca_vhdjh_liao2013.fasta
+!examples/data/endosymbiosis/
+examples/data/endosymbiosis/*
+!examples/data/endosymbiosis/playground/
+examples/data/endosymbiosis/playground/*
+!examples/data/endosymbiosis/playground/gallery.json
 
 # Generated outputs
 *.html

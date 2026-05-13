@@ -1,0 +1,62 @@
+[
+  {
+    "id": "P10809",
+    "label": "HSP60 / HSPD1 (mitochondrial chaperonin \u2014 direct homolog of bacterial GroEL)"
+  },
+  {
+    "id": "P25705",
+    "label": "ATP synthase alpha subunit / ATP5F1A (mitochondrial \u2014 conserved from alpha-proteobacteria)"
+  },
+  {
+    "id": "P06576",
+    "label": "ATP synthase beta subunit / ATP5F1B (mitochondrial \u2014 conserved from alpha-proteobacteria)"
+  },
+  {
+    "id": "P99999",
+    "label": "Cytochrome c / CYCS (mitochondrial electron carrier \u2014 ancient bacterial origin)"
+  },
+  {
+    "id": "Q12931",
+    "label": "TRAP1 (mitochondrial HSP90 \u2014 bacterial HtpG homolog)"
+  },
+  {
+    "id": "P08559",
+    "label": "Pyruvate dehydrogenase E1-alpha / PDHA1 (mitochondrial matrix \u2014 bacterial ancestry)"
+  },
+  {
+    "id": "O75390",
+    "label": "Citrate synthase / CS (TCA cycle, mitochondrial matrix \u2014 conserved from bacteria)"
+  },
+  {
+    "id": "P04179",
+    "label": "Superoxide dismutase 2 / SOD2 (mitochondrial Mn-SOD \u2014 acquired from the bacterial endosymbiont)"
+  },
+  {
+    "id": "O75306",
+    "label": "NADH:ubiquinone oxidoreductase core subunit S1 / NDUFS1 (Complex I \u2014 bacterial Nuo homolog)"
+  },
+  {
+    "id": "P21912",
+    "label": "Aconitase 2 / ACO2 (TCA cycle, mitochondrial \u2014 bacterial aconitase homolog)"
+  },
+  {
+    "id": "P36776",
+    "label": "Lon protease / LONP1 (mitochondrial quality-control protease \u2014 bacterial Lon homolog)"
+  },
+  {
+    "id": "P20674",
+    "label": "Cytochrome c oxidase subunit 5A / COX5A (Complex IV \u2014 mitochondrial membrane)"
+  },
+  {
+    "id": "P27888",
+    "label": "GroEL (Rickettsia prowazekii chaperonin \u2014 alpha-proteobacterial ancestor of mitochondrial HSP60)"
+  },
+  {
+    "id": "P09191",
+    "label": "ATP synthase beta subunit (Synechocystis cyanobacterium \u2014 chloroplast ancestor homolog)"
+  },
+  {
+    "id": "P14835",
+    "label": "RuBisCO large subunit (Synechocystis \u2014 the enzyme that powers oxygenic photosynthesis)"
+  }
+]
