@@ -48,9 +48,9 @@ def test_reconstruct_tip_sequence_from_muts():
             }
         ],
     }
-    tips = mod.reconstruct_tip_sequences(tree, root_seq, gene="HA1")
-    assert tips["B"] == "MLVI"
-    assert tips["A"] == "MLTI"
+    seq_map = mod.reconstruct_tip_sequences(tree, root_seq, gene="HA1")
+    assert seq_map["B"] == "MLVI"
+    assert seq_map["A"] == "MLTI"
 
 
 def test_collect_tips():
