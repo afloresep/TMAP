@@ -1,0 +1,10 @@
+Indo-European languages TMAP (Pass A)
+Languages: 160
+Top-level families: ['Albanian', 'Anatolian', 'Armenian', 'Balto-Slavic', 'Celtic', 'Germanic', 'Hellenic', 'Indo-Iranic', 'Italic', 'Tocharian']
+TMAP: metric=jaccard, n_neighbors=15, n_permutations=512
+
+Edge same-family fraction: 0.943
+Chance baseline (random pairs): 0.194
+Lift vs chance: 4.86x
+
+PNG: /Users/afloresep/work/tmap2/paper/images/ie_languages_tmap.png

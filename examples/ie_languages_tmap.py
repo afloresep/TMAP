@@ -10,13 +10,13 @@ Outputs:
 """
 from __future__ import annotations
 
-import argparse  # noqa: F401
+import argparse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import matplotlib.pyplot as plt  # noqa: F401
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
@@ -184,8 +184,121 @@ def build_cognate_atlas(cldf_dir: Path = CLDF_DIR) -> CognateAtlas:
     )
 
 
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--n-neighbors", type=int, default=15,
+                   help="Smaller default than flu since only ~160 languages.")
+    p.add_argument("--n-permutations", type=int, default=512)
+    p.add_argument("--seed", type=int, default=42)
+    return p
+
+
+def top_level_clade(label: str) -> str:
+    """Reduce 'Germanic;North-West;West' to 'Germanic' for coloring/purity."""
+    return label.split(";")[0] if label else "Other"
+
+
 def main() -> None:
-    raise NotImplementedError("Filled in by later tasks.")
+    args = build_parser().parse_args()
+    from tmap import TMAP
+
+    ensure_iecor_cldf()
+    atlas = build_cognate_atlas()
+    print(f"Languages in atlas: {len(atlas.names):,}", flush=True)
+
+    print("Fitting TMAP...", flush=True)
+    model = TMAP(
+        metric="jaccard",
+        n_neighbors=args.n_neighbors,
+        n_permutations=args.n_permutations,
+        kc=50,
+        seed=args.seed,
+        minhash_seed=args.seed,
+    ).fit(atlas.cognate_sets)
+
+    # Validation uses the flat top-level family labels.
+    top_subs = np.asarray([top_level_clade(s) for s in atlas.subgroups], dtype=object)
+    purity = _edge_subgroup_purity(model.tree_, top_subs)
+    chance = _chance_subgroup_purity(top_subs)
+    print(f"Edge same-family fraction: {purity:.3f} (chance {chance:.3f})", flush=True)
+
+    _plot_tmap(model, atlas, top_subs, IMG_PATH)
+
+    lines = [
+        "Indo-European languages TMAP (Pass A)",
+        f"Languages: {len(atlas.names):,}",
+        f"Top-level families: {sorted(set(top_subs))}",
+        f"TMAP: metric=jaccard, n_neighbors={args.n_neighbors}, "
+        f"n_permutations={args.n_permutations}",
+        "",
+        f"Edge same-family fraction: {purity:.3f}",
+        f"Chance baseline (random pairs): {chance:.3f}",
+        f"Lift vs chance: {purity / chance:.2f}x" if chance > 0 else "Lift vs chance: n/a",
+        "",
+        f"PNG: {IMG_PATH}",
+    ]
+    REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Report: {REPORT_PATH}")
+
+
+def _edge_subgroup_purity(tree, subgroups: NDArray) -> float:
+    """Fraction of TMAP tree edges whose endpoints share a family label."""
+    matches = 0
+    total = 0
+    for src, tgt in tree.edges:
+        if src < len(subgroups) and tgt < len(subgroups):
+            total += 1
+            if subgroups[src] == subgroups[tgt]:
+                matches += 1
+    return matches / total if total else 0.0
+
+
+def _chance_subgroup_purity(
+    subgroups: NDArray, n_pairs: int = 50000, seed: int = 0
+) -> float:
+    """Chance baseline: probability two random tips share a family label."""
+    rng = np.random.default_rng(seed)
+    a = rng.integers(0, len(subgroups), size=n_pairs)
+    b = rng.integers(0, len(subgroups), size=n_pairs)
+    return float(np.mean(subgroups[a] == subgroups[b]))
+
+
+def _plot_tmap(
+    model,
+    atlas: CognateAtlas,
+    top_subs: NDArray,
+    out_path: Path,
+) -> None:
+    import matplotlib
+    coords = model.embedding_
+    uniq = sorted(set(top_subs))
+    cmap = matplotlib.colormaps.get_cmap("tab20")
+    colors = {g: cmap(i / max(1, len(uniq) - 1)) for i, g in enumerate(uniq)}
+
+    fig, ax = plt.subplots(figsize=(10, 8), dpi=160)
+    # Tree edges first, then colored leaves on top.
+    for src, tgt in model.tree_.edges:
+        if src < len(coords) and tgt < len(coords):
+            ax.plot(
+                [coords[src, 0], coords[tgt, 0]],
+                [coords[src, 1], coords[tgt, 1]],
+                color="lightgray", lw=0.4, alpha=0.7, zorder=1,
+            )
+    for g in uniq:
+        mask = top_subs == g
+        ax.scatter(
+            coords[mask, 0], coords[mask, 1],
+            color=colors[g], s=36, label=g, edgecolors="black",
+            linewidths=0.4, zorder=2,
+        )
+    ax.legend(loc="best", fontsize=8, framealpha=0.85)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(f"Indo-European languages TMAP — {len(atlas.names)} languages")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 if __name__ == "__main__":
