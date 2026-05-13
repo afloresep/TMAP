@@ -1,0 +1,11 @@
+Flu H3N2 HA phylogeny comparison (Pass B)
+Nextstrain JSON tips: 1,598
+TMAP atlas size: 1,598
+Common strains: 1,598
+k-mer size (AA): 5
+TMAP: metric=jaccard, n_neighbors=60, n_permutations=512, kc=80
+
+Pairwise tree-distance agreement:
+  Spearman(TMAP hops, Nextstrain hops) on 199,859 pairs = 0.909
+
+PNG: /Users/afloresep/work/tmap2/paper/images/flu_h3n2_ha_compare.png
