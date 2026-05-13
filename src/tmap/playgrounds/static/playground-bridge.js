@@ -68,6 +68,9 @@
     const sp = getSP();
     if (msg.type === "select" && sp) sp.select(msg.indices || []);
     if (msg.type === "draw-path") { pathNodes = msg.nodes; draw(); }
+    if (msg.type === "add-marker") {
+      if (sp && typeof msg.idx === "number") sp.select([msg.idx]);
+    }
     if (msg.type === "clear") {
       pathNodes = null;
       draw();
