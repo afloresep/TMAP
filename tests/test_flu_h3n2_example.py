@@ -64,3 +64,25 @@ def test_collect_tips():
     }
     names = [t["name"] for t in mod.collect_tips(tree)]
     assert sorted(names) == ["A", "C", "D"]
+
+
+def test_kmers_aa_basic():
+    mod = _load_module()
+    out = mod.kmers_aa("ACDEACDE", k=3)
+    # All 3-mers from "ACDEACDE" containing only AA alphabet
+    expected = sorted({"ACD", "CDE", "DEA", "EAC"})
+    assert out == expected
+
+
+def test_build_atlas_shapes():
+    mod = _load_module()
+    metas = [
+        mod.StrainMeta(strain="t1", date_str="2020.1", num_date=2020.1, clade="A"),
+        mod.StrainMeta(strain="t2", date_str="2021.2", num_date=2021.2, clade="B"),
+    ]
+    seqs = {"t1": "ACDEACDE", "t2": "ACDEACDF"}
+    atlas = mod.build_atlas(metas, seqs, k=3)
+    assert atlas.names == ["t1", "t2"]
+    assert len(atlas.kmers) == 2
+    assert atlas.num_dates.shape == (2,)
+    assert list(atlas.clades) == ["A", "B"]
