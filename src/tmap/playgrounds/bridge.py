@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _BRIDGE_DIR = Path(__file__).parent / "static"
-BRIDGE_TAG = '<script src="/static/playground-bridge.js"></script>'
+BRIDGE_TAG = '<script src="../playground-bridge.js"></script>'
 
 
 def inject_bridge(html_path: Path) -> None:
