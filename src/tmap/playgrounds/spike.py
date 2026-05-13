@@ -140,6 +140,26 @@ class SpikePlayground(Playground):
         ]
         return PathResult(nodes=nodes, resolved_a=ra, resolved_b=rb)
 
+    def add(self, item: str) -> QueryResult:
+        kmers = self._encode(item)
+        model = self._model
+        model.add_points(kmers)
+        # add_points appends to model.embedding_; the new row is the last one
+        new_idx = len(model.embedding_) - 1
+        # Invalidate the cached normalized embedding so the new point is included
+        _norm_cached.cache_clear()
+        norm = normalize_coords(model.embedding_)
+        return QueryResult(
+            idx=new_idx,
+            distance=0.0,
+            label=item[:30],
+            extra={
+                "nx": float(norm[new_idx, 0]),
+                "ny": float(norm[new_idx, 1]),
+                "is_new_point": True,
+            },
+        )
+
 
 @lru_cache(maxsize=2)
 def _load_model(p: str) -> TMAP:

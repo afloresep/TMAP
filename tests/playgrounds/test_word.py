@@ -34,3 +34,10 @@ def test_path_exact_match(tiny_word_pg):
     assert len(pr.nodes) >= 2
     assert pr.nodes[0].label == "cat"
     assert pr.nodes[-1].label == "truck"
+
+
+def test_add_point(tiny_word_pg):
+    qr = tiny_word_pg.add("zebra")
+    assert qr.extra["is_new_point"] is True
+    assert 0.0 <= qr.extra["nx"] <= 1.0
+    assert 0.0 <= qr.extra["ny"] <= 1.0

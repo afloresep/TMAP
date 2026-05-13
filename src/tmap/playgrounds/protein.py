@@ -142,6 +142,29 @@ class ProteinPlayground(Playground):
         ]
         return PathResult(nodes=nodes, resolved_a=ra, resolved_b=rb)
 
+    def add(self, item: str) -> QueryResult:
+        # Only sequences make sense to add (accessions are already on the map)
+        if not self._looks_like_sequence(item):
+            raise ValueError("Add expects a protein sequence (>=20 AA)")
+        vec = self._encode_fn(item).reshape(1, -1)
+        model = self._model
+        model.add_points(vec)
+        # add_points appends to model.embedding_; the new row is the last one
+        new_idx = len(model.embedding_) - 1
+        # Invalidate the cached normalized embedding so the new point is included
+        _norm_cached.cache_clear()
+        norm = normalize_coords(model.embedding_)
+        return QueryResult(
+            idx=new_idx,
+            distance=0.0,
+            label=item[:30],
+            extra={
+                "nx": float(norm[new_idx, 0]),
+                "ny": float(norm[new_idx, 1]),
+                "is_new_point": True,
+            },
+        )
+
     def gallery(self) -> list[dict[str, str]]:
         """Return the curated list of famous proteins (empty if no gallery.json was loaded)."""
         return list(self._gallery)
