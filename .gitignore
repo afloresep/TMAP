@@ -44,6 +44,8 @@ Thumbs.db
 *.pkl
 data/
 examples/data/
+*.fasta
+*diamond*
 
 # Generated outputs
 *.html
