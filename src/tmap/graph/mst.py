@@ -83,6 +83,10 @@ def tree_from_knn_graph(knn: KNNGraph, config: Any | None = None) -> Tree:
         config.fme_iterations = 1
         config.deterministic = True
         config.seed = 0
+        # This path only needs the MST topology (s, t), not coordinates, so skip
+        # the (now default-on) adaptive layout work and crossing-reduction pass.
+        config.adaptive = False
+        config.untangle = False
 
     _, _, s, t = layout_from_knn_graph(knn, config=config, create_mst=True)
     return _tree_from_ogdf_edges(knn, s, t)

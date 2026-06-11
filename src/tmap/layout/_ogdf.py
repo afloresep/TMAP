@@ -30,6 +30,7 @@ LayoutResult: Any = None
 Merger: Any = None
 Placer: Any = None
 ScalingType: Any = None
+UntangleMode: Any = None
 _cpp_layout_from_edge_list: Any = None
 
 
@@ -43,7 +44,8 @@ def _load_extension() -> bool:
     2. Falling back to direct file loading from site-packages
     """
     global _AVAILABLE, _IMPORT_ERROR
-    global LayoutConfig, LayoutResult, Merger, Placer, ScalingType, _cpp_layout_from_edge_list
+    global LayoutConfig, LayoutResult, Merger, Placer, ScalingType, UntangleMode
+    global _cpp_layout_from_edge_list
 
     # Try normal import first
     try:
@@ -63,6 +65,9 @@ def _load_extension() -> bool:
             ScalingType as _ST,
         )
         from tmap.layout._tmap_ogdf import (
+            UntangleMode as _UM,
+        )
+        from tmap.layout._tmap_ogdf import (
             layout_from_edge_list as _lfel,
         )
 
@@ -72,6 +77,7 @@ def _load_extension() -> bool:
         Merger = _M
         Placer = _P
         ScalingType = _ST
+        UntangleMode = _UM
         _cpp_layout_from_edge_list = _lfel
         _AVAILABLE = True
         return True
@@ -111,6 +117,7 @@ def _load_extension() -> bool:
         Merger = module.Merger
         Placer = module.Placer
         ScalingType = module.ScalingType
+        UntangleMode = module.UntangleMode
         _cpp_layout_from_edge_list = module.layout_from_edge_list
 
         _AVAILABLE = True

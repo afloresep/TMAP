@@ -29,6 +29,12 @@ PYBIND11_MODULE(_tmap_ogdf, m) {
         .value("RelativeToDesiredLength", tmap::ScalingType::RelativeToDesiredLength)
         .value("RelativeToDrawing", tmap::ScalingType::RelativeToDrawing);
 
+    py::enum_<tmap::UntangleMode>(m, "UntangleMode", "Crossing-reduction post-pass mode")
+        .value("Rotate", tmap::UntangleMode::Rotate,
+            "Best of several rotations about the parent + reflection (default)")
+        .value("Reflect", tmap::UntangleMode::Reflect,
+            "Only flip each subtree across its parent->child axis");
+
     // LayoutConfig
     py::class_<tmap::LayoutConfig>(m, "LayoutConfig", "Configuration for OGDF layout")
         .def(py::init<>())
@@ -61,7 +67,38 @@ PYBIND11_MODULE(_tmap_ogdf, m) {
         .def_readwrite("merger_adjustment", &tmap::LayoutConfig::merger_adjustment,
             "Edge length adjustment (default: 0)")
         .def_readwrite("node_size", &tmap::LayoutConfig::node_size,
-            "Node size for repulsion (default: 1/65)")
+            "Node size for repulsion; used by the legacy (adaptive=False) layout (default: 1/65)")
+
+        // ---- Per-level adaptive layout (on by default) ----
+        .def_readwrite("adaptive", &tmap::LayoutConfig::adaptive,
+            "Use the per-level adaptive layout (default: True). Set False for the "
+            "legacy single-shot ModularMultilevelMixer.")
+        .def_readwrite("ns_cap", &tmap::LayoutConfig::ns_cap,
+            "Adaptive per-level node-size cap; the master spread/grid knob (default: 0.03)")
+        .def_readwrite("ns_coef", &tmap::LayoutConfig::ns_coef,
+            "Adaptive per-level node-size coefficient (default: 2.5)")
+        .def_readwrite("ns_exp", &tmap::LayoutConfig::ns_exp,
+            "Adaptive per-level node-size exponent: size shrinks as ns_coef/n^ns_exp (default: 0.40)")
+        .def_readwrite("quad_rotate", &tmap::LayoutConfig::quad_rotate,
+            "Rotate the FME frame per level to remove the central cross (default: True)")
+
+        // ---- Crossing-reduction post-pass (on by default) ----
+        .def_readwrite("untangle", &tmap::LayoutConfig::untangle,
+            "Run the crossing-reduction post-pass (default: True)")
+        .def_readwrite("untangle_mode", &tmap::LayoutConfig::untangle_mode,
+            "Untangle mode: Rotate (default) or Reflect")
+        .def_readwrite("untangle_max_sub", &tmap::LayoutConfig::untangle_max_sub,
+            "Cap on subtree size considered; 0 = no cap (default: 2000)")
+        .def_readwrite("untangle_passes", &tmap::LayoutConfig::untangle_passes,
+            "Greedy untangle sweeps (default: 4)")
+        .def_readwrite("untangle_rot_steps", &tmap::LayoutConfig::untangle_rot_steps,
+            "Rotation angles tried per subtree (default: 64)")
+        .def_readwrite("untangle_max_angle", &tmap::LayoutConfig::untangle_max_angle,
+            "Aesthetic cap in DEGREES on subtree turn; 0 = no cap (default: 90)")
+        .def_readwrite("untangle_slide_eps", &tmap::LayoutConfig::untangle_slide_eps,
+            "Bounded stem-slide fraction; 0 = off / exact edge lengths (default: 0)")
+        .def_readwrite("untangle_slide_steps", &tmap::LayoutConfig::untangle_slide_steps,
+            "Stem-scale samples when untangle_slide_eps > 0 (default: 5)")
         .def_readwrite("deterministic", &tmap::LayoutConfig::deterministic,
             "Enable deterministic mode (single thread, seeded RNG)")
         .def_property("seed",
