@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Self
 import numpy as np
 from numpy.typing import NDArray
 
+from tmap.graph.connect import RequeryFn, connect_knn_components
 from tmap.graph.mst import _tree_from_ogdf_edges, tree_from_knn_graph
 from tmap.graph.types import Tree
 from tmap.index.lsh_forest import LSHForest
@@ -95,13 +96,23 @@ class TMAP:
             ``reproducible=True`` to force a deterministic build.
         minhash_seed: Random seed for MinHash when metric is ``"jaccard"``.
         layout_iterations: Number of OGDF layout iterations.
-        layout_config: Optional advanced OGDF layout config.
+        layout_config: Optional advanced OGDF layout config. Its
+            ``deterministic`` and ``seed`` fields are managed by the estimator
+            (always a seeded, deterministic layout) and are set on the object
+            you pass, in place; set other knobs (e.g. ``ns_cap``, ``untangle``)
+            freely. For a nondeterministic / multi-threaded layout, use
+            ``tmap.layout.layout_from_knn_graph``.
         store_index: If True, keep the dense ANN index after ``fit()`` so you
             can later call ``transform()`` or ``add_points()``.
         reproducible: If True, build the USearch HNSW index single-threaded
             so the kNN graph is bit-identical across runs. Slower (roughly
             5-7x for HNSW build at 10k+ points), but guarantees the same
             coordinates from the same data and seed. Default ``False``.
+        connect_components: If True (default), bridge a disconnected kNN graph
+            (which a too-low ``n_neighbors`` can produce) into a single tree by
+            adding minimum-weight cross-component edges, so ``path``/``distance``
+            stay defined and the layout is connected. Set ``False`` to keep the
+            forest. See ``n_components_`` for how many components were found.
 
     Example:
         >>> model = TMAP(metric="jaccard", n_neighbors=20).fit(binary_matrix)
@@ -121,6 +132,7 @@ class TMAP:
         layout_config: Any | None = None,
         store_index: bool = False,
         reproducible: bool = False,
+        connect_components: bool = True,
     ) -> None:
         if n_neighbors <= 0:
             raise ValueError(f"n_neighbors must be > 0, got {n_neighbors}")
@@ -145,8 +157,12 @@ class TMAP:
         self.layout_config = layout_config
         self.store_index = store_index
         self.reproducible = reproducible
+        self.connect_components = connect_components
 
         self._embedding: NDArray[np.float32] | None = None
+        self._n_components: int | None = None
+        self._n_bridges: int = 0
+        self._connected_graph: KNNGraph | None = None
         self._index: Any | None = None
         self._tree: Tree | None = None
         self._graph: KNNGraph | None = None
@@ -176,6 +192,11 @@ class TMAP:
             raise ValueError("Pass either X or knn_graph, not both.")
         if knn_graph is None and X is None:
             raise ValueError("Either X or knn_graph must be provided.")
+
+        # Closure used to look for cross-component bridges if the k-NN graph is
+        # disconnected (see connect_knn_components). Set per backend below; left
+        # None for a user-supplied knn_graph (no index to re-query).
+        requery: RequeryFn | None = None
 
         if knn_graph is not None:
             knn = knn_graph
@@ -210,6 +231,7 @@ class TMAP:
                 knn = index.query_knn(k=self.n_neighbors)
                 self._index = index
                 self._lsh_forest = None
+                requery = lambda kk: index.query_knn(k=kk)  # noqa: E731
             else:
                 # Sets/strings → MinHash + LSH Forest.
                 signatures, n_samples, n_features = self._encode_jaccard(X)
@@ -245,11 +267,13 @@ class TMAP:
 
                 self._lsh_forest = forest
                 self._index = None
+                requery = lambda kk: forest.get_knn_graph(k=kk, kc=self.kc)  # noqa: E731
         elif self.metric == "precomputed":
             distance_matrix = self._coerce_distance_matrix(X)
             knn = KNNGraph.from_distance_matrix(distance_matrix, k=self.n_neighbors)
             self._lsh_forest = None
             self._n_features = None
+            requery = lambda kk: KNNGraph.from_distance_matrix(distance_matrix, k=kk)  # noqa: E731
         elif self.metric in {"cosine", "euclidean"}:
             X_dense = self._coerce_dense_matrix(X)
             if self.n_neighbors >= X_dense.shape[0]:
@@ -265,16 +289,39 @@ class TMAP:
             self._lsh_forest = None
             self._n_features = X_dense.shape[1]
             self._index = index if self.store_index else None
+            requery = lambda kk: index.query_knn(k=kk)  # noqa: E731
         else:
             # Defensive fallback; __init__ already validates metrics.
             raise ValueError(f"Unsupported metric {self.metric!r}")
 
-        self._graph = knn
+        self._graph = knn  # the raw k-NN graph as the backend returned it
+
+        # A k-NN graph with too-low k can fragment into several components, whose
+        # MST is a forest. Bridge them into one connected graph (default on) so
+        # path/distance stay well-defined and the layout is connected. graph_ keeps
+        # the raw graph; this connected graph drives the tree and the embedding.
+        if self.connect_components:
+            connected, n_comp, n_bridges = connect_knn_components(knn, requery)
+            self._n_components = n_comp
+            self._n_bridges = n_bridges
+            if n_bridges > 0:
+                warnings.warn(
+                    f"k-NN graph had {n_comp} disconnected components "
+                    f"(n_neighbors={self.n_neighbors} may be too low); added "
+                    f"{n_bridges} bridge edge(s) to form a single connected tree. "
+                    f"Increase n_neighbors/kc for a more faithful graph, or pass "
+                    f"connect_components=False to keep the forest.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        else:
+            connected = knn
+        self._connected_graph = connected
 
         require_ogdf()
         config = self._make_layout_config()
-        x, y, s, t = layout_from_knn_graph(knn, config=config, create_mst=True)
-        self._tree = _tree_from_ogdf_edges(knn, s, t)
+        x, y, s, t = layout_from_knn_graph(connected, config=config, create_mst=True)
+        self._tree = _tree_from_ogdf_edges(connected, s, t)
 
         self._embedding = np.column_stack([x, y]).astype(np.float32, copy=False)
         return self
@@ -366,12 +413,31 @@ class TMAP:
         return self._embedding
 
     @property
+    def n_components_(self) -> int | None:
+        """Number of connected components in the raw kNN graph at fit time.
+
+        ``1`` means the graph was already connected. ``> 1`` means a too-low
+        ``n_neighbors`` fragmented it and ``n_bridges_`` edges were added to
+        join it (when ``connect_components=True``). ``None`` if components were
+        not checked (``connect_components=False``).
+        """
+        return self._n_components
+
+    @property
+    def n_bridges_(self) -> int:
+        """Number of bridge edges added to connect a fragmented kNN graph."""
+        return self._n_bridges
+
+    @property
     def tree_(self) -> Tree:
         """Return the fitted tree."""
         if self._tree is None:
-            if self._graph is None:
+            # Prefer the connected graph so the tree spans all nodes; fall back
+            # to the raw graph (e.g. a model restored from an older save).
+            source = getattr(self, "_connected_graph", None) or self._graph
+            if source is None:
                 raise RuntimeError("Estimator is not fitted. Call fit() first.")
-            self._tree = tree_from_knn_graph(self._graph)
+            self._tree = tree_from_knn_graph(source)
         return self._tree
 
     @property
@@ -1028,14 +1094,20 @@ class TMAP:
         return self.tree_.hops_from(source)
 
     def _make_layout_config(self) -> Any | None:
-        if self.layout_config is not None:
-            return self.layout_config
-        if LayoutConfig is None:
-            return None
+        config = self.layout_config
+        if config is None:
+            if LayoutConfig is None:
+                return None
+            config = LayoutConfig()
+            if hasattr(config, "fme_iterations"):
+                config.fme_iterations = self.layout_iterations
 
-        config = LayoutConfig()
-        if hasattr(config, "fme_iterations"):
-            config.fme_iterations = self.layout_iterations
+        # The estimator owns layout reproducibility: always run a deterministic,
+        # seeded layout, whether or not a custom layout_config was passed. The
+        # HNSW index build is the separate, multi-threaded-by-default stage gated
+        # by `reproducible`; the layout's own multi-threading gives no measurable
+        # speedup, so determinism here is free. For a nondeterministic/
+        # multi-threaded layout, call tmap.layout.layout_from_knn_graph directly.
         if hasattr(config, "deterministic"):
             config.deterministic = True
         if hasattr(config, "seed"):

@@ -8,7 +8,7 @@
 namespace tmap {
 
 // =============================================================================
-// Configuration
+// Config
 // =============================================================================
 
 /// Placer algorithm for initial node placement during uncoarsening
@@ -35,6 +35,12 @@ enum class ScalingType {
     RelativeToAvgLength,   // Scale relative to average edge weights
     RelativeToDesiredLength,
     RelativeToDrawing      // Scale relative to drawing (default)
+};
+
+/// Crossing-reduction post-pass mode
+enum class UntangleMode {
+    Rotate,   // best of several rotations about the parent (+ reflection); default
+    Reflect   // only flip each subtree across its parent->child axis
 };
 
 /// Layout configuration matching original TMAP parameters
@@ -66,7 +72,23 @@ struct LayoutConfig {
     // Node size (affects repulsion)
     float node_size = 1.0f / 65.0f;
 
-    // Determinism: if set, use single thread + seed
+    // Per-level adaptive layout
+    bool adaptive = true;
+    double ns_cap = 0.03;
+    double ns_coef = 2.5;
+    double ns_exp = 0.40;
+    bool quad_rotate = true;
+
+    // Crossing-reduction post-pass
+    bool untangle = true;
+    UntangleMode untangle_mode = UntangleMode::Rotate;
+    int untangle_max_sub = 2000; //(0 => no cap)
+    int untangle_passes = 4;
+    int untangle_rot_steps = 64;
+    double untangle_max_angle = 90.0;
+    double untangle_slide_eps = 0.0;
+    int untangle_slide_steps = 5;
+
     bool deterministic = false;
     std::optional<uint32_t> seed = std::nullopt;
 };
@@ -75,7 +97,6 @@ struct LayoutConfig {
 // Result types
 // =============================================================================
 
-/// Layout result: coordinates + edge topology
 struct LayoutResult {
     std::vector<float> x;        // X coordinates (n_nodes)
     std::vector<float> y;        // Y coordinates (n_nodes)

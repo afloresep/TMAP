@@ -146,6 +146,35 @@ def test_jaccard_knn_changes_when_minhash_seed_changes() -> None:
     assert not (same_indices and same_distances)
 
 
+@pytest.mark.skipif(not OGDF_AVAILABLE, reason="OGDF extension not built")
+def test_reproducible_holds_with_custom_layout_config() -> None:
+    """reproducible=True must stay deterministic even when a layout_config is passed.
+
+    Regression: a user-supplied LayoutConfig was used verbatim (deterministic=False),
+    silently producing a nondeterministic, multi-threaded layout despite
+    reproducible=True. The estimator now stamps deterministic/seed onto whichever
+    config it uses, default-constructed or passed in.
+    """
+    from tmap.layout import LayoutConfig
+
+    data = np.random.default_rng(0).standard_normal((120, 8)).astype(np.float32)
+
+    def fit_once() -> np.ndarray:
+        return (
+            TMAP(
+                metric="euclidean",
+                n_neighbors=10,
+                seed=42,
+                reproducible=True,
+                layout_config=LayoutConfig(),
+            )
+            .fit(data)
+            .embedding_
+        )
+
+    np.testing.assert_array_equal(fit_once(), fit_once())
+
+
 @pytest.mark.parametrize("kw", [{"l": 8}, {"lsh_num_trees": 8}])
 def test_legacy_lsh_keywords_raise_type_error(kw: dict[str, int]) -> None:
     with pytest.raises(TypeError, match="unexpected keyword argument"):
