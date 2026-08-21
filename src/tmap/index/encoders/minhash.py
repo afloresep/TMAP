@@ -305,7 +305,9 @@ class MinHash:
                     # xxhas64 could be up to 2^64 but numpy int64 holds up to  2^63 -1
                     # so mask to 63 bits ANDing the number
 
-                    cache[token] = xxhash.xxh64_intdigest(token.encode("utf-8")) & 0x7FFFFFFFFFFFFFFF
+                    cache[token] = (
+                        xxhash.xxh64_intdigest(token.encode("utf-8")) & 0x7FFFFFFFFFFFFFFF
+                    )
                 indices_flat.append(cache[token])
             offsets.append(n_tokens)
 
