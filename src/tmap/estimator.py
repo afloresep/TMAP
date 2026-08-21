@@ -500,6 +500,7 @@ class TMAP:
             viz.set_edges(
                 tree.edges[:, 0].astype(np.uint32, copy=False),
                 tree.edges[:, 1].astype(np.uint32, copy=False),
+                tree.weights.astype(np.float32, copy=False),
             )
 
         return viz

@@ -93,6 +93,22 @@ def main() -> None:
     viz.add_color_layout("QED", props["qed"].tolist(), color="magma")
     viz.add_label("Murcko Scaffold", scaffolds.tolist())
 
+    # Presentation and discovery controls used by the interactive HTML shell.
+    viz.filterable = ["MW", "LogP", "Ring Count", "QED"]
+    viz.searchable = ["SMILES", "Murcko Scaffold"]
+    viz.configure_column(
+        "SMILES",
+        link_template="https://pubchem.ncbi.nlm.nih.gov/#query={SMILES}",
+        copyable=True,
+    )
+    viz.configure_column("MW", display_name="Molecular weight", format="fixed:1")
+    viz.configure_column("LogP", format="fixed:2")
+    viz.configure_column("QED", format="fixed:3")
+    viz.configure_card(
+        title_column="SMILES",
+        fields=["MW", "LogP", "Ring Count", "QED", "Murcko Scaffold"],
+    )
+
     output_path = viz.write_html(args.output)
     print(f"Saved HTML to {output_path}")
 
