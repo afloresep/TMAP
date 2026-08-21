@@ -81,6 +81,10 @@ def test_precomputed_metric_builds_embedding() -> None:
     assert model.graph_.distances.shape == (4, 2)
     assert model.embedding_.shape == (4, 2)
 
+    viz = model.to_tmapviz()
+    assert viz._edge_weights is not None
+    np.testing.assert_array_equal(viz._edge_weights, model.tree_.weights)
+
 
 @pytest.mark.skipif(not OGDF_AVAILABLE, reason="OGDF extension not built")
 def test_fit_accepts_precomputed_knn_graph() -> None:

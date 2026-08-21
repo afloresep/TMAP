@@ -411,6 +411,7 @@ class TmapViz:
         self._points_array: np.ndarray | None = None  # Shape: (n, 2)
         self._edges_s: np.ndarray | None = None
         self._edges_t: np.ndarray | None = None
+        self._edge_weights: np.ndarray | None = None
         self._layout_keys: list[str] = []
         self._labels_keys: list[str] = []
         self._smiles_column: str | None = None
@@ -967,9 +968,15 @@ class TmapViz:
             display_name: Override the label shown in cards/tooltips.
             link_template: URL template with ``{column_name}`` placeholders.
             copyable: If True, add a copy button for this value.
-            format: Display format hint (e.g. ``"stars:5"``).
+            format: Display format hint. Supported values are ``"fixed:N"``,
+                ``"percent:N"``, ``"scientific:N"``, ``"integer"``, and
+                ``"stars:N"``, where ``N`` controls precision or star count.
+
+        Notes:
+            Repeated calls merge with the column's existing hints, so one UI
+            setting can be changed without restating the others.
         """
-        ui: dict[str, Any] = {}
+        ui: dict[str, Any] = dict(self._column_ui.get(name, {}))
         if display_name is not None:
             ui["displayName"] = display_name
         if link_template is not None:
@@ -1125,12 +1132,17 @@ class TmapViz:
         self,
         s: list[int] | NDArray[np.unsignedinteger],
         t: list[int] | NDArray[np.unsignedinteger],
+        weights: list[float] | NDArray[np.floating] | None = None,
     ) -> None:
-        """Set MST edge source/target index arrays.
+        """Set MST edge source/target arrays and optional edge distances.
 
         Args:
             s: Source vertex indices for each edge.
             t: Target vertex indices for each edge.
+            weights: Optional non-negative distance for each edge. The HTML
+                Neighborhood Explorer converts these distances to similarity
+                scores. When omitted, it estimates similarity from the plotted
+                coordinate distance.
 
         Raises:
             ValueError: If arrays differ in length, are not 1-D, or contain
@@ -1149,6 +1161,19 @@ class TmapViz:
                 f"Edge arrays must have the same length. Got s: {len(s_arr)} and t: {len(t_arr)}"
             )
 
+        weights_arr: np.ndarray | None = None
+        if weights is not None:
+            weights_arr = np.asarray(weights, dtype=np.float32)
+            if weights_arr.ndim != 1:
+                raise ValueError(f"Edge weights must be 1-dimensional. Got {weights_arr.ndim}D")
+            if weights_arr.shape != s_arr.shape:
+                raise ValueError(
+                    "Edge weights must have the same length as the edge arrays. "
+                    f"Got weights: {len(weights_arr)} and edges: {len(s_arr)}"
+                )
+            if not np.all(np.isfinite(weights_arr)) or np.any(weights_arr < 0):
+                raise ValueError("Edge weights must contain finite, non-negative distances")
+
         if self.n_points > 0:
             max_idx = self.n_points
             if s_arr.size > 0 and (s_arr.max() >= max_idx or t_arr.max() >= max_idx):
@@ -1159,6 +1184,7 @@ class TmapViz:
 
         self._edges_s = s_arr
         self._edges_t = t_arr
+        self._edge_weights = weights_arr
 
     def set_edge_style(
         self,
@@ -1608,12 +1634,19 @@ class TmapViz:
 
         # Pack edges if present
         edges_b64 = ""
+        edge_weights_b64 = ""
         n_edges = 0
         if self._edges_s is not None and self._edges_t is not None:
             n_edges = len(self._edges_s)
             edges_combined = np.concatenate([self._edges_s, self._edges_t]).astype(np.uint32)
             edges_compressed = gzip.compress(edges_combined.tobytes(), compresslevel=6)
             edges_b64 = base64.b64encode(edges_compressed).decode("ascii")
+            if self._edge_weights is not None:
+                weights_compressed = gzip.compress(
+                    self._edge_weights.astype(np.float32, copy=False).tobytes(),
+                    compresslevel=6,
+                )
+                edge_weights_b64 = base64.b64encode(weights_compressed).decode("ascii")
 
         # Build metadata (same flat structure as write_static)
         layout_options = list(self._layout_keys)
@@ -1654,6 +1687,7 @@ class TmapViz:
             "structures3dSource": self._structures_3d_source,
             "structures3dFormat": self._structures_3d_format,
             "nEdges": n_edges,
+            "hasEdgeWeights": bool(edge_weights_b64),
             "columns": columns_meta,
             "card": self._card_config,
             "filters": self._filterable if self._filterable else (layout_options or None),
@@ -1683,6 +1717,7 @@ class TmapViz:
             inline_coords=coords_b64,
             inline_columns=columns_b64,
             inline_edges=edges_b64,
+            inline_edge_weights=edge_weights_b64,
         )
 
     def write_html(
@@ -1770,6 +1805,12 @@ class TmapViz:
             edges_combined = np.concatenate([self._edges_s, self._edges_t]).astype(np.uint32)
             edges_compressed = gzip.compress(edges_combined.tobytes(), compresslevel=6)
             (output_dir / "edges.bin").write_bytes(edges_compressed)
+            if self._edge_weights is not None:
+                weights_compressed = gzip.compress(
+                    self._edge_weights.astype(np.float32, copy=False).tobytes(),
+                    compresslevel=6,
+                )
+                (output_dir / "edge_weights.bin").write_bytes(weights_compressed)
 
         # Columns
         columns_meta: dict[str, dict[str, Any]] = {}
@@ -1859,6 +1900,7 @@ class TmapViz:
             "structures3dSource": self._structures_3d_source,
             "structures3dFormat": self._structures_3d_format,
             "nEdges": n_edges,
+            "hasEdgeWeights": self._edge_weights is not None and n_edges > 0,
             "columns": columns_meta,
             "card": self._card_config,
             "filters": self._filterable if self._filterable else (layout_options or None),
@@ -1890,6 +1932,7 @@ class TmapViz:
             inline_coords="",
             inline_columns={},
             inline_edges="",
+            inline_edge_weights="",
         )
         (output_dir / "index.html").write_text(html, encoding="utf-8")
 
