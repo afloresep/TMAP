@@ -354,6 +354,7 @@
       font-size: 9px;
     }
     .neighbor-structure svg { width: 68px; height: 58px; }
+    .neighbor-structure img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .neighbor-index {
       width: 68px;
       height: 58px;
@@ -2482,6 +2483,13 @@ function moleculePreviewMarkup(pointIndex, idPrefix) {
     const svgId = idPrefix + '-' + pointIndex;
     return '<span class="neighbor-structure" data-smiles="' + escapeHtml(smiles) + '">' +
       '<svg id="' + escapeHtml(svgId) + '" aria-label="Molecular structure"></svg></span>';
+  }
+  // No SMILES, so show the point's image if the map has an image column.
+  const imagesCol = metadata.imagesColumn ? columns[metadata.imagesColumn] : null;
+  const imageUri = imagesCol ? imagesCol.values[pointIndex] : '';
+  if (typeof imageUri === 'string' && imageUri.startsWith('data:')) {
+    return '<span class="neighbor-structure">' +
+      '<img src="' + escapeHtml(imageUri) + '" loading="lazy" alt="Point image"></span>';
   }
   return '<span class="neighbor-index">#' + (pointIndex + 1).toLocaleString() + '</span>';
 }
