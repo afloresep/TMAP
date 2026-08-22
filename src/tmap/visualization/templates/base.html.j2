@@ -303,7 +303,8 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
-    .neighborhood-focus {
+    .tree-modes { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .tree-chip {
       border: 1px solid rgba(74,158,255,0.24);
       border-radius: 6px;
       background: rgba(74,158,255,0.08);
@@ -314,9 +315,29 @@
       font-weight: 600;
       padding: 5px 8px;
     }
-    .neighborhood-focus:hover,
-    .neighborhood-focus.active { background: rgba(74,158,255,0.18); color: #b4d8ff; }
+    .tree-chip:hover:not(:disabled),
+    .tree-chip.active { background: rgba(74,158,255,0.18); color: #b4d8ff; }
+    .tree-chip:disabled { opacity: 0.4; cursor: default; }
     .neighborhood-summary { color: #777b82; font-size: 10px; margin-bottom: 7px; }
+    .tree-endpoint {
+      display: flex; align-items: center; gap: 6px;
+      color: #777b82; font-size: 10px; margin-bottom: 7px;
+    }
+    .tree-endpoint select {
+      flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px; background: rgba(255,255,255,0.04); color: #c6c9cf;
+      font: inherit; font-size: 10px; padding: 3px 4px;
+    }
+    .tree-distance-btn {
+      width: 100%; border: 0; background: transparent; color: #7fb8f0;
+      cursor: pointer; font: inherit; font-size: 10px; padding: 9px 0 2px; text-align: left;
+    }
+    .tree-distance-btn.active { color: #b4d8ff; }
+    .neighbor-step {
+      color: #777b82; font-size: 9px; font-variant-numeric: tabular-nums;
+      align-self: center; text-align: right;
+    }
+    .neighbor-main.with-step { grid-template-columns: 16px 68px minmax(0, 1fr); gap: 6px; }
     .neighbor-list { border-top: 1px solid rgba(255,255,255,0.07); }
     .neighbor-row {
       display: grid;
@@ -1112,7 +1133,18 @@
     [data-theme="light"] .neighborhood-title,
     [data-theme="light"] .neighborhood-summary,
     [data-theme="light"] .neighbor-delta,
+    [data-theme="light"] .neighbor-step,
+    [data-theme="light"] .tree-endpoint,
     [data-theme="light"] .comparison-property .property-name { color: #77777d; }
+    [data-theme="light"] .tree-endpoint select {
+      border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.02); color: #1d1d1f;
+    }
+    [data-theme="light"] .tree-chip { color: #0a6bd6; }
+    [data-theme="light"] .tree-chip:hover:not(:disabled),
+    [data-theme="light"] .tree-chip.active { background: rgba(0,122,255,0.14); color: #054a95; }
+    [data-theme="light"] .neighborhood-more,
+    [data-theme="light"] .tree-distance-btn { color: #0a6bd6; }
+    [data-theme="light"] .tree-distance-btn.active { color: #054a95; }
     [data-theme="light"] .neighbor-list,
     [data-theme="light"] .comparison-view { border-color: rgba(0,0,0,0.09); }
     [data-theme="light"] .neighbor-row { border-bottom-color: rgba(0,0,0,0.065); }
@@ -1400,6 +1432,7 @@
       <div class="help-item"><span class="help-gesture">Scroll</span><span class="help-copy">Zoom in and out</span></div>
       <div class="help-item"><span class="help-gesture">Click</span><span class="help-copy">Inspect and pin a point</span></div>
       <div class="help-item"><span class="help-gesture">Lasso</span><span class="help-copy">Drag around points to select and export</span></div>
+      <div class="help-item"><span class="help-gesture">Tree</span><span class="help-copy">In the inspector, follow a point's neighbours or trace the path to a second pinned point</span></div>
     </div>
     <p class="help-hint">Keyboard: arrows pan, + / - zoom, 0 resets, ? opens this guide.</p>
   </aside>
@@ -1778,6 +1811,97 @@ function connectedNeighbors(idx) {
   return neighbors;
 }
 
+// === Tree traversal ===
+// Paths and tree-distance colouring are both one breadth-first
+// walk over the adjacency index built above. The scratch buffers below are
+// allocated once and reused, so repeating a walk costs no allocation: 12 bytes
+// per point.
+let bfsOrder = null;
+let bfsParent = null;
+let bfsDistance = null;
+let bfsCount = 0;
+let bfsSource = -1;
+let bfsBlocked = -1;
+
+function edgeLength(edgeIndex) {
+  if (edgeWeights && edgeIndex >= 0 && edgeIndex < edgeWeights.length) {
+    return Math.max(0, Number(edgeWeights[edgeIndex]));
+  }
+  if (!edgeSources) return 1;
+  const source = edgeSources[edgeIndex];
+  const target = edgeTargets[edgeIndex];
+  const dx = x[source] - x[target];
+  const dy = y[source] - y[target];
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Walk the tree from a source point, optionally refusing to pass through one
+// blocked point. Fills bfsOrder/bfsParent/bfsDistance and returns how many
+// nodes were reached.
+// Only the nodes actually visited are cleared afterwards, so a walk that stops
+// early stays proportional to what it reached, not to the whole map.
+function treeBfs(source, blocked = -1) {
+  if (!adjacencyOffsets || source < 0 || source >= n) return 0;
+  if (source === bfsSource && blocked === bfsBlocked) return bfsCount;
+  if (!bfsOrder) {
+    bfsOrder = new Int32Array(n);
+    bfsParent = new Int32Array(n).fill(-1);
+    bfsDistance = new Float32Array(n);
+  }
+  for (let i = 0; i < bfsCount; i++) bfsParent[bfsOrder[i]] = -1;
+  bfsSource = source;
+  bfsBlocked = blocked;
+  bfsParent[source] = source;
+  bfsDistance[source] = 0;
+  bfsOrder[0] = source;
+  let head = 0;
+  let tail = 1;
+  while (head < tail) {
+    const node = bfsOrder[head++];
+    const base = bfsDistance[node];
+    for (let pos = adjacencyOffsets[node]; pos < adjacencyOffsets[node + 1]; pos++) {
+      const next = adjacencyNeighbors[pos];
+      if (next === blocked || bfsParent[next] !== -1) continue;
+      bfsParent[next] = node;
+      bfsDistance[next] = base + edgeLength(adjacencyEdgeIndices[pos]);
+      bfsOrder[tail++] = next;
+    }
+  }
+  bfsCount = tail;
+  return bfsCount;
+}
+
+// Nodes along the tree path between two points, inclusive of both ends. Empty
+// when the two points sit in different components of a disconnected map.
+function treePath(from, to) {
+  if (from < 0 || to < 0 || from >= n || to >= n) return [];
+  treeBfs(from);
+  if (to !== from && bfsParent[to] === -1) return [];
+  const path = [];
+  let node = to;
+  for (let guard = 0; guard <= bfsCount; guard++) {
+    path.push(node);
+    if (node === from) break;
+    node = bfsParent[node];
+  }
+  path.reverse();
+  return path;
+}
+
+// Length of the tree path in edge weights (or in plotted distance when the map
+// carries no weights).
+function treePathLength(path) {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    for (let pos = adjacencyOffsets[path[i - 1]]; pos < adjacencyOffsets[path[i - 1] + 1]; pos++) {
+      if (adjacencyNeighbors[pos] !== path[i]) continue;
+      total += edgeLength(adjacencyEdgeIndices[pos]);
+      break;
+    }
+  }
+  return total;
+}
+
 function parseEdgeColor(str) {
   const m = str.match(/rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*(?:,\\s*([\\d.]+))?\\s*\\)/);
   if (m) return [+m[1]/255, +m[2]/255, +m[3]/255, m[4] !== undefined ? +m[4] : 1];
@@ -1928,6 +2052,18 @@ function edgePositionsForNeighborhood(idx, onlyNeighbor = -1) {
     positions[i * 4 + 2] = x[item.idx];
     positions[i * 4 + 3] = y[item.idx];
   });
+  return positions;
+}
+
+function edgePositionsForPath(path) {
+  const segments = Math.max(0, path.length - 1);
+  const positions = new Float32Array(segments * 4);
+  for (let i = 0; i < segments; i++) {
+    positions[i * 4] = x[path[i]];
+    positions[i * 4 + 1] = y[path[i]];
+    positions[i * 4 + 2] = x[path[i + 1]];
+    positions[i * 4 + 3] = y[path[i + 1]];
+  }
   return positions;
 }
 
@@ -2263,7 +2399,15 @@ for (const name of layoutOptions) {
   colorSelect.appendChild(opt);
 }
 if (initialColor) colorSelect.value = initialColor;
-colorSelect.addEventListener('change', (e) => applyColor(e.target.value));
+colorSelect.addEventListener('change', (e) => {
+  // Picking any other layout retires the synthetic tree-distance column, so the
+  // inspector button and the dropdown never disagree about what is on screen.
+  if (e.target.value !== TREE_DISTANCE_COLUMN && treeDistanceAnchor >= 0) {
+    retireTreeDistanceColumn();
+    if (pinnedCards.length) rerenderCardPreservingScroll('.tree-distance-btn');
+  }
+  applyColor(e.target.value);
+});
 
 // Initial render
 updateProgress(95, 'Rendering...');
@@ -2290,11 +2434,18 @@ const CARD_BODY_HEIGHT_MIN = 220;
 const pinnedCards = []; // Array of point indices
 let currentCardIndex = 0;
 let comparisonIndex = -1;
-let neighborhoodFocusActive = false;
+// Which view of the tree the inspector is showing: 'off', 'neighbors' or
+// 'path'. The two chips in the section head are this one value.
+let treeFocusMode = 'off';
+let pathTargetIndex = -1;
+let treeDistanceAnchor = -1;
 const expandedNeighborhoods = new Set();
 
 const MAX_CARDS = 50;
 const MAX_VISIBLE_NEIGHBORS = 6;
+// A tree path can run to hundreds of nodes. Rendering them all at once is the
+// single most expensive thing the inspector does, so the list starts short.
+const MAX_VISIBLE_PATH_NODES = 20;
 
 function clampCardWidth(width) {
   const w = Number(width);
@@ -2521,13 +2672,78 @@ function renderComparisonView(idx, neighborIdx, propertyColumns) {
   return html;
 }
 
-function renderNeighborhoodExplorer(idx, cardConfig) {
+// One row of the tree list. The two modes differ only in the badge on the right
+// and in which edge lights up on hover, so they share this markup.
+function renderTreeRow(anchorIdx, rowIdx, propertyColumns, options = {}) {
+  let attrs = ' data-neighbor="' + rowIdx + '"';
+  if (options.hoverFrom !== undefined) attrs += ' data-hover-from="' + options.hoverFrom + '"';
+
+  let html = '<div class="neighbor-row" role="listitem"' + attrs + '>';
+  html += '<button type="button" class="neighbor-main' + (options.step === undefined ? '' : ' with-step') +
+    '" data-neighbor-navigate="' + rowIdx + '" aria-label="Open ' +
+    escapeHtml(truncatePlainText(getLabel(rowIdx), 50)) + '">';
+  if (options.step !== undefined) {
+    html += '<span class="neighbor-step">' + options.step + '</span>';
+  }
+  html += moleculePreviewMarkup(rowIdx, 'neighbor-structure');
+  html += '<span class="neighbor-copy"><span class="neighbor-topline">';
+  html += '<span class="neighbor-label" title="' + escapeHtml(getLabel(rowIdx)) + '">' +
+    truncateString(getLabel(rowIdx), 30) + '</span>';
+  html += '<span class="neighbor-score">' + escapeHtml(options.badge || '') + '</span></span>';
+  if (propertyColumns.length) {
+    html += '<span class="neighbor-deltas">';
+    for (const name of propertyColumns.slice(0, 2)) {
+      const col = columns[name];
+      if (!col) continue;
+      const delta = formatPropertyDelta(name, col.values[anchorIdx], col.values[rowIdx]);
+      html += '<span class="neighbor-delta"><strong>' + escapeHtml(getColumnDisplayName(name)) + '</strong> ' +
+        escapeHtml(delta || '-') + '</span>';
+    }
+    html += '</span>';
+  }
+  html += '</span></button>';
+  if (options.compare) {
+    html += '<button type="button" class="neighbor-compare' + (comparisonIndex === rowIdx ? ' active' : '') +
+      '" data-neighbor-compare="' + rowIdx + '" aria-pressed="' + String(comparisonIndex === rowIdx) +
+      '" aria-label="Compare with ' + escapeHtml(truncatePlainText(getLabel(rowIdx), 45)) + '">Compare</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// The other endpoint a path starts out pointing at: the most recently pinned
+// point that is not the one being inspected.
+function defaultPathTarget(idx) {
+  for (let i = pinnedCards.length - 1; i >= 0; i--) {
+    if (pinnedCards[i] !== idx) return pinnedCards[i];
+  }
+  return -1;
+}
+
+function renderTreeModes(idx) {
+  const canPath = pinnedCards.length > 1;
+  const modes = [
+    { mode: 'neighbors', label: 'Neighbors', enabled: true, hint: 'Dim everything except the connected neighbors' },
+    { mode: 'path', label: 'Path', enabled: canPath, hint: canPath ? 'Trace the tree path to another pinned point' : 'Pin a second point to trace a path' },
+  ];
+  let html = '<div class="tree-modes" role="group" aria-label="Tree focus mode">';
+  for (const item of modes) {
+    const active = treeFocusMode === item.mode;
+    html += '<button type="button" class="tree-chip' + (active ? ' active' : '') +
+      '" data-tree-mode="' + item.mode + '" aria-pressed="' + String(active) + '"' +
+      (item.enabled ? '' : ' disabled') + ' title="' + escapeHtml(item.hint) + '">' + item.label + '</button>';
+  }
+  return html + '</div>';
+}
+
+// The Neighbors and Path chips render into this one section: the chip picks
+// what the list below contains, so nothing new is added to the inspector when a
+// mode is switched.
+function renderTreeExplorer(idx, cardConfig) {
   if (!hasEdges) return '';
   let html = '<section class="neighborhood-section" aria-labelledby="neighborhood-title">';
-  html += '<div class="neighborhood-head"><span class="neighborhood-title" id="neighborhood-title">Neighborhood</span>';
-  html += '<button type="button" class="neighborhood-focus' + (neighborhoodFocusActive ? ' active' : '') +
-    '" aria-pressed="' + String(neighborhoodFocusActive) + '">' +
-    (neighborhoodFocusActive ? 'Show all points' : 'Show neighborhood') + '</button></div>';
+  html += '<div class="neighborhood-head"><span class="neighborhood-title" id="neighborhood-title">Tree</span>';
+  html += renderTreeModes(idx) + '</div>';
 
   if (!edgesLoaded || !adjacencyOffsets) {
     html += '<div class="neighborhood-empty">Loading connected neighbors…</div></section>';
@@ -2541,8 +2757,23 @@ function renderNeighborhoodExplorer(idx, cardConfig) {
   }
 
   const propertyColumns = comparisonColumnNames(cardConfig);
+  if (treeFocusMode === 'path') {
+    html += renderPathBody(idx, propertyColumns);
+  } else {
+    html += renderNeighborBody(idx, neighbors, propertyColumns);
+  }
+
+  const distanceActive = treeDistanceAnchor === idx;
+  html += '<button type="button" class="tree-distance-btn' + (distanceActive ? ' active' : '') +
+    '" aria-pressed="' + String(distanceActive) + '">' +
+    (distanceActive ? '✓ Map coloured by distance from here' : 'Colour map by distance from here') + '</button>';
+  html += '</section>';
+  return html;
+}
+
+function renderNeighborBody(idx, neighbors, propertyColumns) {
   const strongest = Math.round(neighbors[0].similarity * 100);
-  html += '<div class="neighborhood-summary">' + neighbors.length.toLocaleString() +
+  let html = '<div class="neighborhood-summary">' + neighbors.length.toLocaleString() +
     (neighbors.length === 1 ? ' connected neighbor' : ' connected neighbors') +
     ' · strongest ' + strongest + '% similarity' + (edgeWeights ? '' : ' (map estimate)') + '</div>';
   html += renderComparisonView(idx, comparisonIndex, propertyColumns);
@@ -2551,54 +2782,159 @@ function renderNeighborhoodExplorer(idx, cardConfig) {
   const expanded = expandedNeighborhoods.has(idx);
   const visible = expanded ? neighbors : neighbors.slice(0, MAX_VISIBLE_NEIGHBORS);
   for (const neighbor of visible) {
-    const neighborIdx = neighbor.idx;
-    const score = Math.round(neighbor.similarity * 100);
-    html += '<div class="neighbor-row" role="listitem" data-neighbor="' + neighborIdx + '">';
-    html += '<button type="button" class="neighbor-main" data-neighbor-navigate="' + neighborIdx +
-      '" aria-label="Open ' + escapeHtml(truncatePlainText(getLabel(neighborIdx), 50)) + '">';
-    html += moleculePreviewMarkup(neighborIdx, 'neighbor-structure');
-    html += '<span class="neighbor-copy"><span class="neighbor-topline">';
-    html += '<span class="neighbor-label" title="' + escapeHtml(getLabel(neighborIdx)) + '">' +
-      truncateString(getLabel(neighborIdx), 32) + '</span>';
-    html += '<span class="neighbor-score">' + score + '%</span></span>';
-    if (propertyColumns.length) {
-      html += '<span class="neighbor-deltas">';
-      for (const name of propertyColumns.slice(0, 2)) {
-        const col = columns[name];
-        const delta = formatPropertyDelta(name, col.values[idx], col.values[neighborIdx]);
-        html += '<span class="neighbor-delta"><strong>' + escapeHtml(getColumnDisplayName(name)) + '</strong> ' +
-          escapeHtml(delta || '-') + '</span>';
-      }
-      html += '</span>';
-    }
-    html += '</span></button>';
-    html += '<button type="button" class="neighbor-compare' + (comparisonIndex === neighborIdx ? ' active' : '') +
-      '" data-neighbor-compare="' + neighborIdx + '" aria-pressed="' + String(comparisonIndex === neighborIdx) +
-      '" aria-label="Compare with ' + escapeHtml(truncatePlainText(getLabel(neighborIdx), 45)) + '">Compare</button>';
-    html += '</div>';
+    html += renderTreeRow(idx, neighbor.idx, propertyColumns, {
+      badge: Math.round(neighbor.similarity * 100) + '%',
+      compare: true,
+    });
   }
   html += '</div>';
   if (neighbors.length > MAX_VISIBLE_NEIGHBORS) {
     html += '<button type="button" class="neighborhood-more">' +
       (expanded ? 'Show closest ' + MAX_VISIBLE_NEIGHBORS : 'Show all ' + neighbors.length.toLocaleString()) + '</button>';
   }
-  html += '</section>';
   return html;
 }
 
-function setNeighborhoodFocus(active, idx) {
-  neighborhoodFocusActive = Boolean(active && idx >= 0 && edgesLoaded);
-  focusedNeighborhoodIndex = neighborhoodFocusActive ? idx : -1;
-  focusedNeighborhoodPositions = neighborhoodFocusActive
-    ? edgePositionsForNeighborhood(idx)
-    : null;
-  scatterplot.set({ opacityInactiveScale: neighborhoodFocusActive ? 0.08 : 0.5 });
-  const selected = neighborhoodFocusActive
-    ? [idx, ...connectedNeighbors(idx).map(item => item.idx)]
-    : (idx >= 0 ? [idx] : []);
+function renderPathBody(idx, propertyColumns) {
+  // setTreeFocus owns the endpoint; this only reports what it chose.
+  if (pathTargetIndex < 0) {
+    return '<div class="neighborhood-empty">Pin a second point to trace a path.</div>';
+  }
+
+  let html = '<div class="tree-endpoint"><label for="tree-path-target">Path to</label>' +
+    '<select id="tree-path-target">';
+  for (const candidate of pinnedCards) {
+    if (candidate === idx) continue;
+    html += '<option value="' + candidate + '"' + (candidate === pathTargetIndex ? ' selected' : '') + '>' +
+      escapeHtml(truncatePlainText(getLabel(candidate), 30)) + '</option>';
+  }
+  html += '</select></div>';
+
+  const path = treePath(idx, pathTargetIndex);
+  if (path.length === 0) {
+    return html + '<div class="neighborhood-empty">No tree path: these points sit in different components of the map.</div>';
+  }
+
+  const steps = path.length - 1;
+  const length = treePathLength(path);
+  html += '<div class="neighborhood-summary">' + steps.toLocaleString() +
+    (steps === 1 ? ' step' : ' steps') + ' · length ' + formatValueText(length) +
+    (edgeWeights ? '' : ' (map estimate)') + '</div>';
+  html += '<div class="neighbor-list" role="list">';
+  const expanded = expandedNeighborhoods.has(idx);
+  const shown = expanded ? path.length : Math.min(path.length, MAX_VISIBLE_PATH_NODES);
+  for (let i = 0; i < shown; i++) {
+    html += renderTreeRow(idx, path[i], propertyColumns, {
+      step: i,
+      badge: i === 0 ? 'start' : formatValueText(bfsDistance[path[i]]),
+      hoverFrom: i === 0 ? path[0] : path[i - 1],
+    });
+  }
+  html += '</div>';
+  if (path.length > MAX_VISIBLE_PATH_NODES) {
+    html += '<button type="button" class="neighborhood-more">' +
+      (expanded
+        ? 'Show first ' + MAX_VISIBLE_PATH_NODES + ' steps'
+        : 'Show all ' + path.length.toLocaleString() + ' steps') + '</button>';
+  }
+  return html;
+}
+
+// Apply one of the tree focus modes to the map: which points stay lit, which
+// edges are drawn on top, and how far the rest is dimmed. All three modes share
+// this single path so they can never disagree about the map state.
+function setTreeFocus(mode, idx) {
+  treeFocusMode = (idx >= 0 && edgesLoaded && adjacencyOffsets) ? mode : 'off';
+  let selected = idx >= 0 ? [idx] : [];
+  let positions = null;
+  // 'path' only dims the map once an endpoint is resolved. Until then the chip
+  // is lit but the map is untouched.
+  let focused = false;
+
+  if (treeFocusMode === 'neighbors') {
+    selected = [idx, ...connectedNeighbors(idx).map(item => item.idx)];
+    positions = edgePositionsForNeighborhood(idx);
+    focused = true;
+  } else if (treeFocusMode === 'path') {
+    // Resolve the endpoint here rather than while rendering, so the map and the
+    // list always describe the same path.
+    if (pathTargetIndex < 0 || pathTargetIndex === idx) pathTargetIndex = defaultPathTarget(idx);
+    if (pathTargetIndex >= 0) {
+      selected = treePath(idx, pathTargetIndex);
+      positions = edgePositionsForPath(selected);
+      focused = selected.length > 0;
+    }
+  }
+
+  focusedNeighborhoodIndex = focused ? idx : -1;
+  focusedNeighborhoodPositions = positions;
+  scatterplot.set({ opacityInactiveScale: focused ? 0.08 : 0.5 });
   scatterplot.select(selected);
   edgeNeedsRedraw = true;
   renderEdges();
+}
+
+// Colouring by tree distance is a colour layout, not a focus mode, so it is
+// registered as a synthetic column and handed to the existing Color by
+// selector. The legend, colormap and dropdown then need no special casing.
+const TREE_DISTANCE_COLUMN = '__tree_distance__';
+const TREE_DISTANCE_COLORMAP = [
+  '#440154', '#472d7b', '#3b528b', '#2c728e', '#21918c',
+  '#28ae80', '#5ec962', '#addc30', '#fde725',
+];
+let treeDistanceValues = null;
+
+function applyTreeDistanceColor(anchor) {
+  const reached = treeBfs(anchor);
+  if (!reached) return;
+  if (!treeDistanceValues) treeDistanceValues = new Float32Array(n);
+  // Points the walk never reached sit in another component. NaN sends them
+  // down the existing missing-value path: black points and a NaN legend entry.
+  treeDistanceValues.fill(NaN);
+  for (let i = 0; i < reached; i++) {
+    const node = bfsOrder[i];
+    treeDistanceValues[node] = bfsDistance[node];
+  }
+  treeDistanceAnchor = anchor;
+
+  const displayName = 'Distance from ' + truncatePlainText(getLabel(anchor), 24);
+  colormaps[TREE_DISTANCE_COLUMN] = TREE_DISTANCE_COLORMAP;
+  columnMeta[TREE_DISTANCE_COLUMN] = {
+    dtype: 'float32',
+    role: 'layout',
+    colormap: TREE_DISTANCE_COLUMN,
+    ui: { displayName },
+  };
+  columns[TREE_DISTANCE_COLUMN] = {
+    values: treeDistanceValues,
+    dtype: 'continuous',
+    role: 'layout',
+    colormap: TREE_DISTANCE_COLUMN,
+  };
+
+  let option = colorSelect.querySelector('option[value="' + TREE_DISTANCE_COLUMN + '"]');
+  if (!option) {
+    option = document.createElement('option');
+    option.value = TREE_DISTANCE_COLUMN;
+    colorSelect.appendChild(option);
+  }
+  option.textContent = displayName;
+  colorSelect.value = TREE_DISTANCE_COLUMN;
+  applyColor(TREE_DISTANCE_COLUMN);
+}
+
+function retireTreeDistanceColumn() {
+  treeDistanceAnchor = -1;
+  colorSelect.querySelector('option[value="' + TREE_DISTANCE_COLUMN + '"]')?.remove();
+  delete columns[TREE_DISTANCE_COLUMN];
+  delete columnMeta[TREE_DISTANCE_COLUMN];
+}
+
+function clearTreeDistanceColor() {
+  retireTreeDistanceColumn();
+  const fallback = colorSelect.options.length ? colorSelect.options[0].value : '';
+  colorSelect.value = fallback;
+  applyColor(fallback);
 }
 
 function hoverNeighbor(sourceIdx, neighborIdx) {
@@ -2679,10 +3015,10 @@ function openPointInspector(idx, { replace = false } = {}) {
     loadEdges().then(() => {
       if (pinnedCards[currentCardIndex] !== idx) return;
       rerenderCardPreservingScroll();
-      setNeighborhoodFocus(neighborhoodFocusActive, idx);
+      setTreeFocus(treeFocusMode, idx);
     }).catch(err => console.error('Failed to load neighborhood edges:', err));
   } else {
-    setNeighborhoodFocus(neighborhoodFocusActive, idx);
+    setTreeFocus(treeFocusMode, idx);
   }
 }
 
@@ -2693,8 +3029,9 @@ function truncateString(str, maxLen) {
 function renderCardStack() {
   if (pinnedCards.length === 0) {
     comparisonIndex = -1;
+    pathTargetIndex = -1;
     hoverNeighbor(-1, -1);
-    setNeighborhoodFocus(false, -1);
+    setTreeFocus('off', -1);
     cardStack.classList.add('hidden');
     cardStack.setAttribute('aria-hidden', 'true');
     document.documentElement.classList.remove('inspector-open');
@@ -2788,7 +3125,7 @@ function renderCardStack() {
     html += '<div class="card-image-container hidden" id="card-image"></div>';
   }
 
-  html += renderNeighborhoodExplorer(idx, cardConfig);
+  html += renderTreeExplorer(idx, cardConfig);
 
   html += '<div class="card-section-label">Properties</div>';
 
@@ -2846,7 +3183,7 @@ function renderCardStack() {
       currentCardIndex--;
       comparisonIndex = -1;
       renderCardStack();
-      setNeighborhoodFocus(neighborhoodFocusActive, pinnedCards[currentCardIndex]);
+      setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
     }
   });
   document.getElementById('card-next')?.addEventListener('click', () => {
@@ -2854,7 +3191,7 @@ function renderCardStack() {
       currentCardIndex++;
       comparisonIndex = -1;
       renderCardStack();
-      setNeighborhoodFocus(neighborhoodFocusActive, pinnedCards[currentCardIndex]);
+      setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
     }
   });
   document.getElementById('card-close')?.addEventListener('click', () => {
@@ -2862,22 +3199,40 @@ function renderCardStack() {
     if (currentCardIndex >= pinnedCards.length) currentCardIndex = Math.max(0, pinnedCards.length - 1);
     comparisonIndex = -1;
     renderCardStack();
-    if (pinnedCards.length) setNeighborhoodFocus(neighborhoodFocusActive, pinnedCards[currentCardIndex]);
+    if (pinnedCards.length) setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
   });
   document.getElementById('card-resize-handle')?.addEventListener('pointerdown', startCardResize);
 
-  cardStack.querySelector('.neighborhood-focus')?.addEventListener('click', () => {
-    setNeighborhoodFocus(!neighborhoodFocusActive, idx);
-    rerenderCardPreservingScroll();
+  cardStack.querySelectorAll('[data-tree-mode]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const mode = chip.dataset.treeMode;
+      // Clicking the lit chip turns the mode off again.
+      const next = treeFocusMode === mode ? 'off' : mode;
+      setTreeFocus(next, idx);
+      rerenderCardPreservingScroll();
+    });
   });
   cardStack.querySelectorAll('.neighbor-row').forEach(row => {
     const neighborIdx = Number(row.dataset.neighbor);
-    row.addEventListener('mouseenter', () => hoverNeighbor(idx, neighborIdx));
-    row.addEventListener('mouseleave', () => hoverNeighbor(idx, -1));
-    row.addEventListener('focusin', () => hoverNeighbor(idx, neighborIdx));
+    // Path rows are not adjacent to the anchor, so they name the edge to
+    // light up themselves.
+    const hoverFrom = row.dataset.hoverFrom === undefined ? idx : Number(row.dataset.hoverFrom);
+    row.addEventListener('mouseenter', () => hoverNeighbor(hoverFrom, neighborIdx));
+    row.addEventListener('mouseleave', () => hoverNeighbor(hoverFrom, -1));
+    row.addEventListener('focusin', () => hoverNeighbor(hoverFrom, neighborIdx));
     row.addEventListener('focusout', (event) => {
-      if (!row.contains(event.relatedTarget)) hoverNeighbor(idx, -1);
+      if (!row.contains(event.relatedTarget)) hoverNeighbor(hoverFrom, -1);
     });
+  });
+  cardStack.querySelector('#tree-path-target')?.addEventListener('change', (event) => {
+    pathTargetIndex = Number(event.target.value);
+    setTreeFocus('path', idx);
+    rerenderCardPreservingScroll('.neighbor-list');
+  });
+  cardStack.querySelector('.tree-distance-btn')?.addEventListener('click', () => {
+    if (treeDistanceAnchor === idx) clearTreeDistanceColor();
+    else applyTreeDistanceColor(idx);
+    rerenderCardPreservingScroll('.tree-distance-btn');
   });
   cardStack.querySelectorAll('[data-neighbor-navigate]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2972,7 +3327,10 @@ function hideExportPanel() {
 
 scatterplot.subscribe('select', (selection) => {
   const indices = selection.points || selection;
-  if (neighborhoodFocusActive) {
+  // A traced path is a result worth exporting, so that mode falls through to
+  // the export panel. Neighbour focus does not: it selects a handful of points
+  // on every click and would flap the panel open.
+  if (treeFocusMode === 'neighbors') {
     hideExportPanel();
     return;
   }
