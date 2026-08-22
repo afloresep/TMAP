@@ -399,7 +399,7 @@ print(f"Laid out {len(x)} points with {len(s)} edges")
 
 ## Next Steps
 
-- Try the example script: `examples/smiles_tmap.py`
+- Try the example script: `examples/chemistry/smiles_tmap.py`
 - Experiment with parameters on your data
 - Check `TmapViz` for interactive visualization options
 

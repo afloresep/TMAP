@@ -14,9 +14,9 @@ examples/word_embeddings_50k_report.txt    Analysis report
 
 Usage
 -----
-    python examples/word_embeddings_50k.py
-    python examples/word_embeddings_50k.py --n 50000
-    python examples/word_embeddings_50k.py --serve
+    python examples/text/word_embeddings_50k.py
+    python examples/text/word_embeddings_50k.py --n 50000
+    python examples/text/word_embeddings_50k.py --serve
 
 Requirements
 ------------
@@ -38,8 +38,11 @@ from tmap.graph.analysis import (
     subtree_purity,
 )
 
-CACHE_DIR = Path(__file__).parent / "data" / "word50k_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "word50k_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 # Readable labels for WordNet lexnames
 LEXNAME_LABELS = {

@@ -120,7 +120,7 @@ This is useful when you want to keep the fitted tree and coordinates for later a
 If you want the same workflow as a script, run:
 
 ```bash
-python examples/molecules_tmap.py --nrows 3000 --output examples/cluster_65053.html
+python examples/chemistry/molecules_tmap.py --nrows 3000 --output examples/cluster_65053.html
 ```
 
 Add `--serve` if you want it to start a local viewer.

@@ -19,9 +19,9 @@ Downloads Oxford Flowers 102 via torchvision (~350 MB, cached).
 
 Usage
 -----
-    python examples/flowers_tmap.py
-    python examples/flowers_tmap.py --serve
-    python examples/flowers_tmap.py --device cuda
+    python examples/images/flowers_tmap.py
+    python examples/images/flowers_tmap.py --serve
+    python examples/images/flowers_tmap.py --device cuda
 
 Requirements
 ------------
@@ -49,8 +49,11 @@ from tmap.graph.analysis import (
     subtree_purity,
 )
 
-CACHE_DIR = Path(__file__).parent / "data" / "flowers_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "flowers_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 # 102 flower category names (0-indexed, matching torchvision labels)
 FLOWER_NAMES = [
@@ -251,7 +254,7 @@ FLOWER_GROUP = {
 
 def load_flowers() -> tuple[list[Image.Image], np.ndarray]:
     """Load all splits of Flowers 102, return (images, labels)."""
-    data_dir = Path(__file__).parent / "data" / "flowers"
+    data_dir = EXAMPLES_DIR / "data" / "flowers"
     all_images: list[Image.Image] = []
     all_labels: list[int] = []
 

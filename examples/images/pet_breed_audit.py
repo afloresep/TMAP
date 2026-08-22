@@ -12,9 +12,9 @@ examples/pets_analysis_report.txt   Text report with 6 analysis sections
 
 Usage
 -----
-    python examples/pet_breed_audit.py                    # auto device
-    python examples/pet_breed_audit.py --device cuda      # force GPU
-    python examples/pet_breed_audit.py --epochs 15        # longer probe training
+    python examples/images/pet_breed_audit.py                    # auto device
+    python examples/images/pet_breed_audit.py --device cuda      # force GPU
+    python examples/images/pet_breed_audit.py --epochs 15        # longer probe training
 
 Bring your own data
 -------------------
@@ -47,8 +47,12 @@ from tmap.graph.analysis import (
 )
 from tmap.visualization import TmapViz
 
-CACHE_DIR = Path(__file__).parent / "data" / "pets_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "pets_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 
 def _extract_embeddings(
@@ -71,7 +75,7 @@ def _extract_embeddings(
         ]
     )
     dataset = datasets.OxfordIIITPet(
-        root=str(Path(__file__).parent / "data" / "oxford-iiit-pet"),
+        root=str(EXAMPLES_DIR / "data" / "oxford-iiit-pet"),
         split=split,
         target_types="category",
         download=True,
@@ -157,7 +161,7 @@ def _train_probe(
 def _encode_images(split: str, size: int = 128) -> list[str]:
     """Load raw images, resize to *size*px, return base64 JPEG data URIs."""
     dataset = datasets.OxfordIIITPet(
-        root=str(Path(__file__).parent / "data" / "oxford-iiit-pet"),
+        root=str(EXAMPLES_DIR / "data" / "oxford-iiit-pet"),
         split=split,
         target_types="category",
         download=False,
@@ -377,7 +381,7 @@ def main() -> None:
 
     # Class names
     ds = datasets.OxfordIIITPet(
-        root=str(Path(__file__).parent / "data" / "oxford-iiit-pet"),
+        root=str(EXAMPLES_DIR / "data" / "oxford-iiit-pet"),
         split="test",
         target_types="category",
         download=False,

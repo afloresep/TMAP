@@ -1,8 +1,8 @@
 """Shows the effect of the crossing-reduction (untangle) post-pass.
 
 Usage:
-    python examples/untangle_demo.py                # 3000 molecules (default)
-    python examples/untangle_demo.py --nrows 6000
+    python examples/layout/untangle_demo.py                # 3000 molecules (default)
+    python examples/layout/untangle_demo.py --nrows 6000
 """
 
 from __future__ import annotations
@@ -23,8 +23,12 @@ from tmap import TMAP
 from tmap.layout import LayoutConfig
 from tmap.utils import fingerprints_from_smiles
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
-OUTPUT = Path(__file__).with_name("untangle_demo.png")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
+OUTPUT = EXAMPLES_DIR / "untangle_demo.png"
 
 
 def _orient(ax, ay, bx, by, cx, cy) -> int:
