@@ -1242,11 +1242,76 @@ class TestHtmlInteractionShell:
         html = viz.to_html()
 
         assert "function buildNeighborIndex" in html
-        assert "function renderNeighborhoodExplorer" in html
+        assert "function renderTreeExplorer" in html
         assert 'class="neighborhood-section"' in html
-        assert "Show neighborhood" in html
+        assert "connected neighbors" in html
         assert "Side-by-side comparison" in html
         assert "IntersectionObserver" in html
+
+    def test_tree_focus_modes_are_embedded_in_inspector(self, viz_with_data):
+        """The inspector ships the Neighbors / Path chips and their walks."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        # Both chips share one section and one mode variable.
+        assert "function renderTreeModes" in html
+        assert "data-tree-mode=" in html
+        for mode, label in (("neighbors", "Neighbors"), ("path", "Path")):
+            assert f"mode: '{mode}', label: '{label}'" in html
+        assert "function setTreeFocus" in html
+        assert "let treeFocusMode = 'off';" in html
+
+        # Tree traversal primitives.
+        assert "function treeBfs" in html
+        assert "function treePath" in html
+
+        # Per-mode bodies.
+        assert "function renderNeighborBody" in html
+        assert "function renderPathBody" in html
+
+    def test_subtree_isolation_is_not_offered(self, viz_with_data):
+        """Lasso selection already covers branch isolation, so no Subtree mode."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "Subtree" not in html
+        assert "subtreeIndices" not in html
+        assert "branchSizes" not in html
+        assert "data-branch-select" not in html
+
+    def test_tree_distance_colouring_registers_a_synthetic_column(self, viz_with_data):
+        """Distance-from-here is a colour layout, routed through the Color by menu."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "function applyTreeDistanceColor" in html
+        assert "function retireTreeDistanceColumn" in html
+        assert "__tree_distance__" in html
+        assert "Colour map by distance from here" in html
+
+    def test_tree_explorer_bounds_its_work_on_large_maps(self, viz_with_data):
+        """Long paths are capped rather than rendered wholesale."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "const MAX_VISIBLE_PATH_NODES" in html
+        assert "const MAX_VISIBLE_NEIGHBORS" in html
 
 
 class TestConfigureCard:
