@@ -7,9 +7,9 @@ HTML visualization.
 For the step-by-step low-level pipeline, see smiles_tmap.py.
 
 Usage:
-    python examples/molecules_tmap.py
-    python examples/molecules_tmap.py --nrows 3000
-    python examples/molecules_tmap.py --serve
+    python examples/chemistry/molecules_tmap.py
+    python examples/chemistry/molecules_tmap.py --nrows 3000
+    python examples/chemistry/molecules_tmap.py --serve
 """
 
 from __future__ import annotations
@@ -22,8 +22,12 @@ import pandas as pd
 from tmap import TMAP
 from tmap.utils import fingerprints_from_smiles, molecular_properties, murcko_scaffolds
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
-DEFAULT_OUTPUT = Path(__file__).with_name("cluster_65053.html")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
+DEFAULT_OUTPUT = EXAMPLES_DIR / "cluster_65053.html"
 
 
 def build_parser() -> argparse.ArgumentParser:

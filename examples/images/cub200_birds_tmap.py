@@ -16,8 +16,8 @@ Downloads CUB-200-2011 from HuggingFace (~1.2 GB, cached).
 
 Usage
 -----
-    python examples/cub200_birds_tmap.py
-    python examples/cub200_birds_tmap.py --serve
+    python examples/images/cub200_birds_tmap.py
+    python examples/images/cub200_birds_tmap.py --serve
 
 Requirements
 ------------
@@ -44,8 +44,11 @@ from tmap.graph.analysis import (
     subtree_purity,
 )
 
-CACHE_DIR = Path(__file__).parent / "data" / "cub200_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "cub200_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 # Bird families for supercategory analysis (prefix → family)
 BIRD_FAMILY = {

@@ -1,47 +1,60 @@
 # Examples
 
+Runnable scripts grouped by data type. Each one is self-contained: run it from
+the repository root and it downloads or caches whatever it needs under
+`examples/data/`, then writes its output to `examples/`.
+
+```bash
+python examples/chemistry/molecules_tmap.py --nrows 3000
+```
+
 ## Chemistry
 
-| Example | Description | Key features |
-|---------|-------------|--------------|
-| [`molecules_tmap.py`](molecules_tmap.py) | High-level molecular TMAP from a SMILES CSV | `TMAP(metric="jaccard")`, `fingerprints_from_smiles`, `molecular_properties`, `murcko_scaffolds` |
-| [`smiles_tmap.py`](smiles_tmap.py) | Low-level pipeline: MinHash → LSHForest → OGDF layout → TmapViz | `MinHash`, `LSHForest`, `layout_from_lsh_forest`, `LayoutConfig` |
-| [`sar_egfr.py`](sar_egfr.py) | SAR navigation for EGFR kinase inhibitors (ChEMBL data) | Activity cliffs, scaffold analysis, SAR paths, `boundary_edges`, `subtree_purity` |
+| Example | Description |
+|---------|-------------|
+| [`chemistry/molecules_tmap.py`](chemistry/molecules_tmap.py) | The simplest chemistry example: SMILES → fingerprints → interactive map, with molecular properties and Murcko scaffolds |
+| [`chemistry/smiles_tmap.py`](chemistry/smiles_tmap.py) | The same map built step by step: `MinHash` → `LSHForest` → OGDF layout → `TmapViz` |
+| [`chemistry/molecules_tmap_legacy.py`](chemistry/molecules_tmap_legacy.py) | `molecules_tmap.py` with the adaptive layout and untangle post-pass switched off, for comparison |
 
-## Image datasets
+## Images
 
-| Example | Description | Key features |
-|---------|-------------|--------------|
-| [`mnist_cosine_tmap.py`](mnist_cosine_tmap.py) | MNIST 70k digits with cosine metric | `TMAP(metric="cosine")`, `LayoutConfig`, `model.path()` |
-| [`pet_breed_audit.py`](pet_breed_audit.py) | Oxford-IIIT Pets classifier audit with ResNet-50 embeddings | `TMAP(metric="cosine")`, graph analysis, image tooltips, failure path tracing |
+| Example | Description |
+|---------|-------------|
+| [`images/pet_breed_audit.py`](images/pet_breed_audit.py) | Audit an image classifier: ResNet-50 embeddings of Oxford-IIIT Pets, a linear probe, and tree analysis of where it fails |
+| [`images/mnist_cosine_tmap.py`](images/mnist_cosine_tmap.py) | MNIST digits with the cosine metric, including paths between similar digits |
+| [`images/emnist_characters_tmap.py`](images/emnist_characters_tmap.py) | Handwritten digits and letters together, showing where OCR confuses the two |
+| [`images/flowers_tmap.py`](images/flowers_tmap.py) | Oxford Flowers 102: morphological gradients across species |
+| [`images/cub200_birds_tmap.py`](images/cub200_birds_tmap.py) | CUB-200 birds: morphological paths across 200 species |
+| [`images/wikiart_tmap.py`](images/wikiart_tmap.py) | WikiArt paintings coloured by artistic style |
 
 ## Proteins
 
-| Example | Description | Key features |
-|---------|-------------|--------------|
-| [`afdb_clusters_tmap.py`](afdb_clusters_tmap.py) | AlphaFold DB: 2.3M structural clusters from Foldseek | Precomputed `KNNGraph`, taxonomy resolution, `node_diversity`, large-scale pipeline |
+| Example | Description |
+|---------|-------------|
+| [`proteins/esm_atlas_tmap.py`](proteins/esm_atlas_tmap.py) | Two views of ESMC's protein space: raw embeddings and SAE features, with predicted structures in the pinned cards |
 
-## Single-cell
+## Text
 
-| Example | Description | Key features |
-|---------|-------------|--------------|
-| [`singlecell_trajectory_tmap.py`](singlecell_trajectory_tmap.py) | Murine lung regeneration trajectory from an official AnnData `.h5ad` | `from_anndata`, `cell_metadata`, `marker_scores`, pseudotime via `distances_from()` |
-| [`singlecell_reprogramming_tmap.py`](singlecell_reprogramming_tmap.py) | Morris fibroblast-to-iEP direct reprogramming trajectory from an official AnnData `.h5ad` | Backed AnnData filtering, explicit root/target anchors, reference pseudotime comparison |
+| Example | Description |
+|---------|-------------|
+| [`text/word_embeddings_tmap.py`](text/word_embeddings_tmap.py) | ~800 common English words embedded with a sentence-transformer |
+| [`text/word_embeddings_50k.py`](text/word_embeddings_50k.py) | The same idea at 50,000 WordNet nouns |
 
-## Quick start
+## Layout internals
 
-The fastest way to try TMAP:
+| Example | Description |
+|---------|-------------|
+| [`layout/untangle_demo.py`](layout/untangle_demo.py) | Before-and-after figure showing what the crossing-reduction (untangle) post-pass does to a layout |
 
-```python
-from tmap import TMAP, fingerprints_from_smiles
+## Data
 
-fps = fingerprints_from_smiles(["CCO", "c1ccccc1", "CC(=O)O", ...])
-model = TMAP(metric="jaccard").fit(fps)
-model.to_html("output.html")
-```
+- `cluster_65053.csv` — ~6k SMILES from an Enamine chemical cluster. Used by the
+  chemistry examples, the layout demo, and several docs and notebooks.
+- `data/` — datasets and cached embeddings downloaded by the examples on first
+  run. Not tracked in git, and can be deleted to reclaim the space.
 
-## Data files
+Outputs (`.html`, `.png`) are written to `examples/` and are not tracked either.
 
-- `cluster_65053.csv` — ~6k SMILES from an Enamine chemical cluster (used by `molecules_tmap.py` and `smiles_tmap.py`)
-- `afdb_cluster_data/` — downloaded automatically by `afdb_clusters_tmap.py`
-- `data/` — cached embeddings and datasets (created by examples on first run)
+## Notebooks
+
+Step-by-step walkthroughs live in [`notebooks/`](../notebooks) rather than here.

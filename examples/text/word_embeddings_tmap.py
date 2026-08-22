@@ -12,8 +12,8 @@ examples/word_embeddings_report.txt    Semantic analysis report
 
 Usage
 -----
-    python examples/word_embeddings_tmap.py
-    python examples/word_embeddings_tmap.py --serve
+    python examples/text/word_embeddings_tmap.py
+    python examples/text/word_embeddings_tmap.py --serve
 
 Requirements
 ------------
@@ -36,7 +36,11 @@ from tmap.graph.analysis import (
 )
 from tmap.visualization import TmapViz
 
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+OUTPUT_DIR = EXAMPLES_DIR
 
 # Vocabulary: ~800 words across 15 semantic categories
 

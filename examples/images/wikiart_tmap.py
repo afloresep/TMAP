@@ -17,9 +17,9 @@ Downloads WikiArt dataset from HuggingFace (~6 GB, cached after first run).
 
 Usage
 -----
-    python examples/wikiart_tmap.py
-    python examples/wikiart_tmap.py --max-images 10000
-    python examples/wikiart_tmap.py --serve
+    python examples/images/wikiart_tmap.py
+    python examples/images/wikiart_tmap.py --max-images 10000
+    python examples/images/wikiart_tmap.py --serve
 
 Requirements
 ------------
@@ -47,8 +47,11 @@ from tmap.graph.analysis import (
     subtree_purity,
 )
 
-CACHE_DIR = Path(__file__).parent / "data" / "wikiart_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "wikiart_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 # Map styles to broad eras for supercategory analysis
 STYLE_ERA = {

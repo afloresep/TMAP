@@ -141,6 +141,8 @@ from tmap.utils.singlecell import from_anndata
 | [10 Protein Analysis](notebooks/10_protein_analysis.ipynb) | FASTA, ESM embeddings, AlphaFold |
 | [11 USearch Jaccard](notebooks/11_usearch_jaccard.ipynb) | Native binary Jaccard backend (high recall, low memory) |
 | [12 Legacy LSH Pipeline](notebooks/12_legacy_lsh_pipeline.ipynb) | Lower-level MinHash + LSHForest + layout workflow |
+| [13 Local Protein Structures](notebooks/13_local_protein_structures.ipynb) | Pinned cards with locally stored PDB/mmCIF structures |
+| [14 CAZyme Analysis](notebooks/14_cazyme_analysis.ipynb) | GH43 glycoside hydrolase family map, contributed example |
 
 ## Lower-Level Pipeline
 

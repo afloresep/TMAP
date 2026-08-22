@@ -10,7 +10,7 @@ Requirements:
     pip install rdkit
 
 Usage:
-    python examples/smiles_tmap.py
+    python examples/chemistry/smiles_tmap.py
 """
 
 from __future__ import annotations
@@ -23,7 +23,11 @@ from tmap import LSHForest, MinHash, fingerprints_from_smiles, molecular_propert
 from tmap.layout import LayoutConfig, ScalingType, layout_from_lsh_forest
 from tmap.visualization import TmapViz
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
 
 
 def main() -> None:

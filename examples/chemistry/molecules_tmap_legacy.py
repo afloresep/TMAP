@@ -1,7 +1,7 @@
 """molecules_tmap.py variant with the adaptive layout + untangle post-pass OFF.
 
 Usage:
-    python examples/molecules_tmap_legacy.py
+    python examples/chemistry/molecules_tmap_legacy.py
 """
 
 from __future__ import annotations
@@ -14,8 +14,12 @@ from tmap import TMAP
 from tmap.layout import LayoutConfig
 from tmap.utils import fingerprints_from_smiles, molecular_properties, murcko_scaffolds
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
-OUTPUT = Path(__file__).with_name("cluster_65053_legacy.html")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
+OUTPUT = EXAMPLES_DIR / "cluster_65053_legacy.html"
 
 
 def main() -> None:

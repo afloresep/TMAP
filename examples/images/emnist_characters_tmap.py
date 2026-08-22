@@ -19,9 +19,9 @@ Downloads EMNIST via torchvision (~500 MB, cached).
 
 Usage
 -----
-    python examples/emnist_characters_tmap.py
-    python examples/emnist_characters_tmap.py --max-images 30000
-    python examples/emnist_characters_tmap.py --serve
+    python examples/images/emnist_characters_tmap.py
+    python examples/images/emnist_characters_tmap.py --max-images 30000
+    python examples/images/emnist_characters_tmap.py --serve
 """
 
 from __future__ import annotations
@@ -43,8 +43,11 @@ from tmap.graph.analysis import (
     subtree_purity,
 )
 
-CACHE_DIR = Path(__file__).parent / "data" / "emnist_cache"
-OUTPUT_DIR = Path(__file__).parent
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+CACHE_DIR = EXAMPLES_DIR / "data" / "emnist_cache"
+OUTPUT_DIR = EXAMPLES_DIR
 
 # EMNIST balanced split: 47 classes
 # 0-9 = digits, 10-35 = A-Z, 36-46 = select lowercase (a,b,d,e,f,g,h,n,q,r,t)
@@ -108,7 +111,7 @@ SHAPE_GROUP = {
 
 def load_emnist(max_images: int | None) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Load EMNIST balanced split, return (images_flat, labels, char_names)."""
-    data_dir = Path(__file__).parent / "data" / "emnist"
+    data_dir = EXAMPLES_DIR / "data" / "emnist"
 
     print("Loading EMNIST (balanced split)...")
     ds_train = datasets.EMNIST(root=str(data_dir), split="balanced", train=True, download=True)
