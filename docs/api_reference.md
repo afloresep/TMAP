@@ -152,7 +152,7 @@ These live in `tmap.utils`.
 
 | Function | What it does |
 |----------|---------------|
-| `fingerprints_from_smiles(smiles, fp_type="morgan", ...)` | Build fingerprints from SMILES |
+| `fingerprints_from_smiles(smiles, fp_type="morgan", ..., return_valid=False)` | Build fingerprints from SMILES |
 | `molecular_properties(smiles, properties=None)` | Compute RDKit properties |
 | `murcko_scaffolds(smiles)` | Compute Murcko scaffold strings |
 
@@ -162,6 +162,19 @@ These live in `tmap.utils`.
 from tmap.utils import fingerprints_from_smiles, molecular_properties
 
 fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+props = molecular_properties(smiles, properties=["mw", "logp", "n_rings"])
+```
+
+`fingerprints_from_smiles` skips any SMILES it cannot read, so it can give
+back fewer rows than you passed in. `molecular_properties` and
+`murcko_scaffolds` keep every input and fill the bad ones with `NaN` or `""`.
+If a SMILES might be bad, ask for the flags and drop those inputs first.
+Otherwise the lists stop matching and points get the wrong colors and labels:
+
+```python
+fps, valid = fingerprints_from_smiles(smiles, return_valid=True)
+smiles = [smi for smi, ok in zip(smiles, valid) if ok]
+
 props = molecular_properties(smiles, properties=["mw", "logp", "n_rings"])
 ```
 
