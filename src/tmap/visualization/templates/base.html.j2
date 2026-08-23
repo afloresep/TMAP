@@ -2597,7 +2597,13 @@ function getLabel(idx) {
 }
 
 function comparisonColumnNames(cardConfig) {
-  const preferred = cardConfig && cardConfig.fields ? cardConfig.fields : layoutOptions;
+  // Numbers to compare between two points. Unless the card names its own
+  // fields, use the columns the map already shows: filter panel first, then
+  // color layouts. A map built only with add_filter has no color layouts,
+  // so listing both keeps the comparison working either way.
+  const preferred = cardConfig && cardConfig.fields
+    ? cardConfig.fields
+    : [...new Set([...filterColumnNames, ...layoutOptions])];
   const result = [];
   for (const name of preferred) {
     const col = columns[name];
