@@ -247,6 +247,43 @@ def _cycle_colormaps(
             colormaps_payload[cmap_name] = [base[i % len(base)] for i in range(needed)]
 
 
+def _coerce_column_values(
+    name: str,
+    values: list[Any] | NDArray,
+    categorical: bool,
+) -> list[Any] | NDArray:
+    """Turn column values into a list or float array, rejecting text in numeric columns."""
+    if isinstance(values, np.ndarray) and not categorical:
+        values = np.asarray(values, dtype=np.float32)
+    elif isinstance(values, np.ndarray):
+        values = values.tolist()
+    else:
+        values = list(values)
+
+    if categorical:
+        return values
+
+    for v in values:
+        if v is None or (isinstance(v, str) and v == ""):
+            continue
+        # pandas NA-like sentinels
+        try:
+            import pandas as _pd
+
+            if isinstance(v, type(_pd.NA)):
+                continue
+        except ImportError:
+            pass
+        try:
+            float(v)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"Continuous column '{name}' contains non-numeric value "
+                f"{v!r}. Use categorical=True for string values."
+            ) from None
+    return values
+
+
 def _contains_nan(values: Sequence[Any]) -> bool:
     """Return True when values contain at least one NaN."""
     try:
@@ -333,7 +370,7 @@ def _to_json_safe(value: Any) -> Any:
 class Column:
     name: str
     values: Sequence[int | np.floating | str]
-    role: Literal["layout", "label", "layout+label", "smiles", "images"]
+    role: Literal["layout", "label", "layout+label", "filter", "filter+label", "smiles", "images"]
     dtype: Literal["continuous", "categorical", "label", "smiles", "images"]
     color: str | None = None
 
@@ -429,6 +466,7 @@ class TmapViz:
         self._custom_colormaps: dict[str, list[str]] = {}
 
         # UI configuration (new declarative API)
+        self._filter_keys: list[str] = []
         self._filterable: list[str] = []
         self._searchable: list[str] = []
         self._card_config: dict[str, Any] | None = None
@@ -482,35 +520,9 @@ class TmapViz:
             layouts. If None, defaults to ``"tab10"`` for categorical and
             ``"viridis"`` for continuous.
         """
-        if isinstance(values, np.ndarray) and not categorical:
-            values = np.asarray(values, dtype=np.float32)
-        elif isinstance(values, np.ndarray):
-            values = values.tolist()
-        else:
-            values = list(values)
-
         # Default to continuous because it will give less issues and having to pass
         # always the type can be annoying...
-        # Validate continuous values are actually numeric
-        if not categorical:
-            for v in values:
-                if v is None or (isinstance(v, str) and v == ""):
-                    continue
-                # pandas NA-like sentinels
-                try:
-                    import pandas as _pd
-
-                    if isinstance(v, type(_pd.NA)):
-                        continue
-                except ImportError:
-                    pass
-                try:
-                    float(v)
-                except (ValueError, TypeError):
-                    raise ValueError(
-                        f"Continuous layout '{name}' contains non-numeric value "
-                        f"{v!r}. Use categorical=True for string values."
-                    ) from None
+        values = _coerce_column_values(name, values, categorical)
 
         _column_dtype: Literal["categorical", "continuous"] = (
             "categorical" if categorical else "continuous"
@@ -678,6 +690,70 @@ class TmapViz:
                 )
 
         return color
+
+    def add_filter(
+        self,
+        name: str,
+        values: list[Any] | NDArray,
+        categorical: bool = False,
+        add_as_label: bool = True,
+    ) -> None:
+        """Add a column to the filter panel without giving it colors.
+
+        Use this when people should be able to filter on a column but it
+        does not need to be one of the colors they can switch between.
+        Picking colors is the slow part of ``add_color_layout``, and this
+        method skips it, so extra filter columns cost very little.
+
+        Parameters
+        ----------
+        name : str
+            Column name shown in the filter panel and tooltip.
+        values : list or ndarray
+            One value per point.
+        categorical : bool, default False
+            If True, treat the values as separate groups and show one
+            clickable bar per group. Otherwise the panel shows a slider
+            for the range of numbers.
+        add_as_label : bool, default True
+            Also show the values in the hover tooltip.
+
+        Raises
+        ------
+        ValueError
+            If *name* is already a color layout. Color layouts can already
+            be filtered on, so there is nothing to add. To choose exactly
+            what the panel shows, set the ``filterable`` property instead.
+
+        Notes
+        -----
+        Columns added here go into the panel on top of the color layouts,
+        not instead of them. Setting ``filterable`` replaces both.
+        """
+        if name in self._layout_keys:
+            raise ValueError(
+                f"Cannot add filter '{name}': it already exists as a color layout, "
+                "and color layouts can already be filtered on. Set the 'filterable' "
+                "property to choose exactly which columns the panel shows."
+            )
+
+        values = _coerce_column_values(name, values, categorical)
+        _column_dtype: Literal["categorical", "continuous"] = (
+            "categorical" if categorical else "continuous"
+        )
+
+        if add_as_label:
+            if name not in self._labels_keys:
+                self._labels_keys.append(name)
+            role: Literal["filter", "filter+label"] = "filter+label"
+        else:
+            if name in self._labels_keys:
+                self._labels_keys.remove(name)
+            role = "filter"
+
+        self._columns[name] = Column(name, values, role, _column_dtype)
+        if name not in self._filter_keys:
+            self._filter_keys.append(name)
 
     def add_label(
         self,
@@ -930,9 +1006,27 @@ class TmapViz:
         self._structures_3d_file_paths = file_paths
         self._structures_3d_copy_sidecars = True
 
+    def _filter_options(self) -> list[str] | None:
+        """Work out which columns the filter panel should show.
+
+        A ``filterable`` list set by hand wins. Otherwise the panel shows
+        the columns added with ``add_filter`` first, then the color
+        layouts, which have always been filterable by default.
+        """
+        if self._filterable:
+            return list(self._filterable)
+        options = list(self._filter_keys)
+        options += [name for name in self._layout_keys if name not in self._filter_keys]
+        return options or None
+
     @property
     def filterable(self) -> list[str]:
-        """Column names shown in the filter panel."""
+        """Column names shown in the filter panel.
+
+        Empty by default, which means the panel shows the columns added
+        with ``add_filter`` plus every color layout. Assigning a list
+        replaces that with exactly the columns you name.
+        """
         return list(self._filterable)
 
     @filterable.setter
@@ -1690,7 +1784,7 @@ class TmapViz:
             "hasEdgeWeights": bool(edge_weights_b64),
             "columns": columns_meta,
             "card": self._card_config,
-            "filters": self._filterable if self._filterable else (layout_options or None),
+            "filters": self._filter_options(),
             "search": self._searchable if self._searchable else (label_options or None),
         }
 
@@ -1903,7 +1997,7 @@ class TmapViz:
             "hasEdgeWeights": self._edge_weights is not None and n_edges > 0,
             "columns": columns_meta,
             "card": self._card_config,
-            "filters": self._filterable if self._filterable else (layout_options or None),
+            "filters": self._filter_options(),
             "search": self._searchable if self._searchable else (label_options or None),
         }
 
