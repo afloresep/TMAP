@@ -111,6 +111,28 @@ viz.add_color_layout(
 
 Use this for discrete labels or small integer sets.
 
+### Filter-Only Columns
+
+```python
+viz.add_filter("MW", props["mw"].tolist())
+viz.add_filter("Ring Count", props["n_rings"].tolist(), categorical=True)
+```
+
+Use this when people should be able to filter on a column, but it does not need
+to be one of the colors they can switch between. Numbers get a slider, groups
+get one clickable bar each. Choosing colors is the slow part of
+`add_color_layout`, and this skips it, so extra filter columns cost very little.
+
+Color layouts can already be filtered on, so `add_filter` columns go into the
+panel on top of them, not instead of them. To say exactly what the panel shows,
+set `filterable`:
+
+```python
+viz.filterable = ["MW", "LogP"]
+```
+
+Pass `add_as_label=False` to keep a filter column out of the tooltip.
+
 ### Tooltip Labels
 
 ```python

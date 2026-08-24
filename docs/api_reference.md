@@ -129,6 +129,7 @@ Visualization object returned by `model.to_tmapviz()`.
 | Method | What it does |
 |--------|---------------|
 | `add_color_layout(name, values, ...)` | Add a colorable column |
+| `add_filter(name, values, ...)` | Add a filter-panel column without colors |
 | `add_label(name, values)` | Add a tooltip column |
 | `add_smiles(values)` | Add molecule structures to tooltips |
 | `to_widget(...)` | Build a Jupyter widget |

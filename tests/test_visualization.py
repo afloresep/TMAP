@@ -1049,6 +1049,119 @@ class TestPlotStatic:
 # =============================================================================
 
 
+class TestAddFilter:
+    """Tests for add_filter: filter panel columns without a color layout."""
+
+    def test_registers_column_without_layout(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        assert "score" in viz._columns
+        assert viz._columns["score"].dtype == "continuous"
+        assert viz._columns["score"].color is None
+        assert viz._layout_keys == []
+        assert [c.name for c in viz.layouts] == []
+
+    def test_added_as_label_by_default(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        assert viz._columns["score"].role == "filter+label"
+        assert "score" in viz._labels_keys
+
+    def test_add_as_label_false(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"], add_as_label=False)
+
+        assert viz._columns["score"].role == "filter"
+        assert "score" not in viz._labels_keys
+
+    def test_categorical_filter(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("group", data["categorical"], categorical=True)
+
+        assert viz._columns["group"].dtype == "categorical"
+        assert viz._columns["group"].color is None
+
+    def test_continuous_rejects_non_numeric(self, viz_with_data):
+        viz, data = viz_with_data
+        with pytest.raises(ValueError, match="categorical=True"):
+            viz.add_filter("group", data["categorical"])
+
+    def test_rejects_existing_color_layout(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_color_layout("score", data["continuous"])
+        with pytest.raises(ValueError, match="already exists as a color layout"):
+            viz.add_filter("score", data["continuous"])
+
+    def test_repeated_call_does_not_duplicate(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+
+        assert viz._filter_keys == ["score"]
+
+    def test_metadata_lists_filter_without_colormap(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+        viz.add_filter("group", data["categorical"], categorical=True)
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["score", "group"]
+        assert meta["layoutOptions"] == []
+        # No colors were worked out for these columns.
+        assert meta["colormaps"] == {}
+        assert meta["columns"]["score"]["colormap"] is None
+        assert meta["columns"]["score"]["dtype"] == "float32"
+        assert meta["columns"]["group"]["dtype"] == "uint32"
+        assert sorted(meta["columns"]["group"]["dictionary"]) == ["A", "B", "C"]
+
+    def test_filters_come_before_color_layouts(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["score", "value"]
+
+    def test_filterable_property_overrides(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+        viz.filterable = ["value"]
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["value"]
+
+    def test_comparison_falls_back_to_filter_columns(self, viz_with_data):
+        # With no color layouts, the neighbour comparison has to take its
+        # numbers from the filter panel instead.
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        html = viz.to_html()
+
+        assert "[...new Set([...filterColumnNames, ...layoutOptions])]" in html
+
+    def test_inline_html_carries_filter_column(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        html = viz.to_html()
+        match = re.search(r"const metadata = ({.*?});", html, re.DOTALL)
+        assert match is not None
+        meta = json.loads(match.group(1))
+
+        assert meta["filters"] == ["score"]
+        assert "score" in meta["columns"]
+
+
 class TestFilterableProperty:
     """Tests for the filterable property."""
 
