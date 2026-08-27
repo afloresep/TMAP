@@ -35,12 +35,21 @@ Use a small subset first. Once the workflow is working, remove `nrows=3000`.
 ```python
 from tmap.utils import fingerprints_from_smiles, molecular_properties, murcko_scaffolds
 
-fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+fps, valid = fingerprints_from_smiles(
+    smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+)
+
+# Only readable SMILES get a fingerprint. Drop the rest, so the properties,
+# scaffolds and tooltips still belong to the right molecules.
+smiles = [smi for smi, ok in zip(smiles, valid) if ok]
+
 props = molecular_properties(smiles, properties=["mw", "logp", "n_rings", "qed"])
 scaffolds = murcko_scaffolds(smiles)
 ```
 
 `fingerprints_from_smiles` returns a binary matrix for `metric="jaccard"`.
+Without `return_valid=True` you get just the matrix, and a single bad SMILES
+shifts every row after it in `props` and `scaffolds`.
 
 ## 3. Fit TMAP
 

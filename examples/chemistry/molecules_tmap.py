@@ -71,7 +71,16 @@ def main() -> None:
     print(f"Loaded {len(smiles):,} molecules from {DATA_PATH.name}")
 
     print("Computing Morgan fingerprints...")
-    fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+    fps, valid = fingerprints_from_smiles(
+        smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+    )
+
+    # A SMILES that cannot be read gets no fingerprint, so drop it here.
+    # Otherwise the properties, scaffolds and tooltips computed below would
+    # end up attached to the wrong molecules.
+    if not valid.all():
+        print(f"  Dropping {int((~valid).sum()):,} unparseable SMILES")
+        smiles = [smi for smi, ok in zip(smiles, valid) if ok]
 
     print("Computing molecular properties...")
     props = molecular_properties(smiles, properties=["mw", "logp", "n_rings", "qed"])

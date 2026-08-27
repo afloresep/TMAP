@@ -36,7 +36,12 @@ def main() -> None:
     smiles = df["smiles"].tolist()
     print(f"Loaded {len(smiles):,} molecules")
 
-    fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+    fps, valid = fingerprints_from_smiles(
+        smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+    )
+    # A SMILES that cannot be read gets no fingerprint, and so no point on the
+    # map. Drop it, so the list still matches the coordinates worked out below.
+    smiles = [smi for smi, ok in zip(smiles, valid) if ok]
     n = fps.shape[0]
     print(f"  Valid fingerprints: {n} x {fps.shape[1]}")
 
