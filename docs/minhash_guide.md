@@ -508,4 +508,4 @@ print(f"Layout: {len(x)} points, {len(s)} edges")
 
 - See [LSHForest Guide](lshforest_guide.md) for indexing and querying
 - See [Layout Guide](layout_guide.md) for visualization parameters
-- Try the example: `examples/smiles_tmap.py`
+- Try the example: `examples/chemistry/smiles_tmap.py`

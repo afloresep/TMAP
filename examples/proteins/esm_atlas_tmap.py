@@ -35,19 +35,19 @@ Outputs
 Usage
 -----
     # Smoke-test the whole chain end-to-end on a handful of proteins first:
-    python examples/esm_atlas_tmap.py --n 50 --fold-loops 1
+    python examples/proteins/esm_atlas_tmap.py --n 50 --fold-loops 1
 
     # Full ship-fast demo (~8k proteins) on a >=24 GB GPU:
-    python examples/esm_atlas_tmap.py --n 8000
+    python examples/proteins/esm_atlas_tmap.py --n 8000
 
     # Bring your own sequences (skips fetching):
-    python examples/esm_atlas_tmap.py --fasta my_proteins.fasta
+    python examples/proteins/esm_atlas_tmap.py --fasta my_proteins.fasta
 
     # Richer metadata via MGnify (annotated-vs-unknown coloring):
-    python examples/esm_atlas_tmap.py --source mgnify --mgya MGYA00585528
+    python examples/proteins/esm_atlas_tmap.py --source mgnify --mgya MGYA00585528
 
     # Serve the result (structures lazy-load over HTTP; needed for the 3D view):
-    python examples/esm_atlas_tmap.py --serve
+    python examples/proteins/esm_atlas_tmap.py --serve
 
 Requirements
 ------------
@@ -79,10 +79,14 @@ import numpy as np
 
 from tmap import TMAP
 
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
 # Config
 
-CACHE_DIR = Path(__file__).parent / "data" / "esm_atlas"
-OUTPUT_DIR = Path(__file__).parent / "esm_atlas_out"
+CACHE_DIR = EXAMPLES_DIR / "data" / "esm_atlas"
+OUTPUT_DIR = EXAMPLES_DIR / "esm_atlas_out"
 STRUCT_DIR = OUTPUT_DIR / "structures"
 
 # Open-weight model IDs (HuggingFace). Swap to the 6B variants for the
@@ -611,8 +615,8 @@ def main() -> None:
     # smoke test and an --n 8000 full run) never clobber each other's data.
     global CACHE_DIR, OUTPUT_DIR, STRUCT_DIR
     tag = "fasta" if args.fasta else args.source
-    CACHE_DIR = Path(__file__).parent / "data" / "esm_atlas" / f"{tag}_n{args.n}"
-    OUTPUT_DIR = Path(__file__).parent / "esm_atlas_out" / f"{tag}_n{args.n}"
+    CACHE_DIR = EXAMPLES_DIR / "data" / "esm_atlas" / f"{tag}_n{args.n}"
+    OUTPUT_DIR = EXAMPLES_DIR / "esm_atlas_out" / f"{tag}_n{args.n}"
     STRUCT_DIR = OUTPUT_DIR / "structures"
 
     stages = STAGES if args.stages == "all" else [s.strip() for s in args.stages.split(",")]

@@ -586,4 +586,4 @@ lsh.save("molecular_index.pkl")
 
 - See [MinHash Guide](minhash_guide.md) for encoding options
 - See [Layout Guide](layout_guide.md) for visualization parameters
-- Try the example: `examples/smiles_tmap.py`
+- Try the example: `examples/chemistry/smiles_tmap.py`

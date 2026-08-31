@@ -90,75 +90,82 @@ def _init_props_worker(prop_names: list[str]) -> None:
 # Fingerprint batch functions (called inside Pool workers)
 
 
-def _morgan_fp_batch(smiles_batch: list[str]) -> NDArray[np.uint8]:
-    """Process a batch of SMILES, return fps array for valid entries."""
+def _morgan_fp_batch(smiles_batch: list[str]) -> tuple[NDArray[np.uint8], NDArray[np.bool_]]:
+    """Process a batch of SMILES, return the fingerprints plus one True/False flag per input."""
     from rdkit import Chem
     from rdkit.Chem import rdFingerprintGenerator
 
     gen = rdFingerprintGenerator.GetMorganGenerator(radius=_FP_RADIUS, fpSize=_FP_NBITS)
     fps = []
-    for smi in smiles_batch:
+    valid = np.zeros(len(smiles_batch), dtype=bool)
+    for i, smi in enumerate(smiles_batch):
         if not smi:
             continue
         mol = Chem.MolFromSmiles(smi)
         if mol is not None:
             fps.append(gen.GetFingerprintAsNumPy(mol).astype(np.uint8))
+            valid[i] = True
     if fps:
-        return np.stack(fps)
-    return np.empty((0, _FP_NBITS), dtype=np.uint8)
+        return np.stack(fps), valid
+    return np.empty((0, _FP_NBITS), dtype=np.uint8), valid
 
 
-def _mqn_fp_batch(smiles_batch: list[str]) -> NDArray[np.int16]:
-    """Process a batch of SMILES, return MQN fingerprints (42 integer counts) for valid entries."""
+def _mqn_fp_batch(smiles_batch: list[str]) -> tuple[NDArray[np.int16], NDArray[np.bool_]]:
+    """Process a batch of SMILES, return MQN fingerprints (42 counts) plus one flag per input."""
     from rdkit import Chem
     from rdkit.Chem import rdMolDescriptors
 
     fps = []
-    for smi in smiles_batch:
+    valid = np.zeros(len(smiles_batch), dtype=bool)
+    for i, smi in enumerate(smiles_batch):
         if not smi:
             continue
         mol = Chem.MolFromSmiles(smi)
         if mol is not None:
             fps.append(np.array(rdMolDescriptors.MQNs_(mol), dtype=np.int16))
+            valid[i] = True
     if fps:
-        return np.stack(fps)
-    return np.empty((0, 42), dtype=np.int16)
+        return np.stack(fps), valid
+    return np.empty((0, 42), dtype=np.int16), valid
 
 
-def _mxfp_fp_batch(smiles_batch: list[str]) -> NDArray[np.int64]:
-    """Process a batch of SMILES, return MXFP fingerprints (217-dim counts) for valid entries."""
+def _mxfp_fp_batch(smiles_batch: list[str]) -> tuple[NDArray[np.int64], NDArray[np.bool_]]:
+    """Process a batch of SMILES, return MXFP fingerprints (217-dim) plus one flag per input."""
     from mxfp.mxfp import MXFPCalculator
 
     calc = MXFPCalculator()
     fps = []
-    for smi in smiles_batch:
+    valid = np.zeros(len(smiles_batch), dtype=bool)
+    for i, smi in enumerate(smiles_batch):
         if not smi:
             continue
         try:
             fp = calc.mxfp_from_smiles(smi)
             if fp is not None:
                 fps.append(fp)
+                valid[i] = True
         except Exception:
             pass
     if fps:
-        return np.stack(fps)
-    return np.empty((0, 217), dtype=np.int64)
+        return np.stack(fps), valid
+    return np.empty((0, 217), dtype=np.int64), valid
 
 
-def _drfp_fp_batch(smiles_batch: list[str]) -> NDArray[np.uint8]:
-    """Process a batch of reaction SMILES, return DRFP fingerprints for the batch."""
+def _drfp_fp_batch(smiles_batch: list[str]) -> tuple[NDArray[np.uint8], NDArray[np.bool_]]:
+    """Process a batch of reaction SMILES, return DRFP fingerprints plus one flag per input."""
     from drfp import DrfpEncoder
 
+    valid = np.array([bool(smi) for smi in smiles_batch], dtype=bool)
     clean = [smi for smi in smiles_batch if smi]
     if not clean:
         n_bits = _DRFP_PARAMS.get("n_folded_length", 2048)
-        return np.empty((0, n_bits), dtype=np.uint8)
+        return np.empty((0, n_bits), dtype=np.uint8), valid
     fps_list = DrfpEncoder.encode(clean, **_DRFP_PARAMS)
-    return np.array(fps_list, dtype=np.uint8)
+    return np.array(fps_list, dtype=np.uint8), valid
 
 
-def _mhfp_fp_batch(smiles_batch: list[str]) -> NDArray[np.uint8]:
-    """Process a batch of SMILES, return SECFP (folded MHFP) fingerprints for valid entries.
+def _mhfp_fp_batch(smiles_batch: list[str]) -> tuple[NDArray[np.uint8], NDArray[np.bool_]]:
+    """Process a batch of SMILES, return SECFP fingerprints plus one flag per input.
 
     SECFP is MHFP's folded binary variant: a uint8 {0,1} vector suitable
     for the Jaccard-on-binary path used by the other fingerprint types.
@@ -169,7 +176,8 @@ def _mhfp_fp_batch(smiles_batch: list[str]) -> NDArray[np.uint8]:
     encoder = MHFPEncoder()
     length = _MHFP_PARAMS.get("length", 2048)
     fps: list[NDArray[np.uint8]] = []
-    for smi in smiles_batch:
+    valid = np.zeros(len(smiles_batch), dtype=bool)
+    for i, smi in enumerate(smiles_batch):
         if not smi:
             continue
         mol = Chem.MolFromSmiles(smi)
@@ -185,9 +193,10 @@ def _mhfp_fp_batch(smiles_batch: list[str]) -> NDArray[np.uint8]:
         )
         if fp is not None:
             fps.append(np.asarray(fp, dtype=np.uint8))
+            valid[i] = True
     if fps:
-        return np.stack(fps)
-    return np.empty((0, length), dtype=np.uint8)
+        return np.stack(fps), valid
+    return np.empty((0, length), dtype=np.uint8), valid
 
 
 # Property batch functions (called inside Pool workers)
@@ -295,6 +304,18 @@ def _default_n_workers() -> int:
     return min(os.cpu_count() or 1, 12)
 
 
+def _warn_dropped(valid: NDArray[np.bool_]) -> None:
+    """Log a warning when some SMILES could not be read."""
+    n_dropped = int((~valid).sum())
+    if n_dropped:
+        logger.warning(
+            "%d/%d SMILES could not be parsed and were skipped. "
+            "Pass return_valid=True to find out which ones.",
+            n_dropped,
+            len(valid),
+        )
+
+
 def _split_into_chunks(lst: list[Any], n_chunks: int) -> list[list[Any]]:
     """Split list into roughly equal chunks."""
     k, m = divmod(len(lst), n_chunks)
@@ -304,7 +325,9 @@ def _split_into_chunks(lst: list[Any], n_chunks: int) -> list[list[Any]]:
 # Fingerprint helpers with built-in parallelization (no Pool wrapper)
 
 
-def _map4_fingerprints(smiles: list[str], n_workers: int, **kwargs: Any) -> NDArray[np.uint8]:
+def _map4_fingerprints(
+    smiles: list[str], n_workers: int, **kwargs: Any
+) -> tuple[NDArray[np.uint8], NDArray[np.bool_]]:
     """Compute MAP4 fingerprints using the map4 package.
 
     MAP4 (MinHashed Atom-Pair fingerprint of radius 2) encodes molecules
@@ -333,25 +356,20 @@ def _map4_fingerprints(smiles: list[str], n_workers: int, **kwargs: Any) -> NDAr
     )
 
     mols = []
-    for smi in smiles:
+    valid = np.zeros(len(smiles), dtype=bool)
+    for i, smi in enumerate(smiles):
         if not smi:
             continue
         mol = Chem.MolFromSmiles(smi)
         if mol is not None:
             mols.append(mol)
+            valid[i] = True
 
-    n_valid = len(mols)
-    if n_valid == 0:
-        return np.empty((0, dimensions), dtype=np.uint8)
-    if n_valid < len(smiles):
-        logger.warning(
-            "%d/%d SMILES could not be parsed and were skipped.",
-            len(smiles) - n_valid,
-            len(smiles),
-        )
+    if not mols:
+        return np.empty((0, dimensions), dtype=np.uint8), valid
 
     fps = calc.calculate_many(mols, number_of_threads=n_workers)
-    return np.asarray(fps, dtype=np.uint8)
+    return np.asarray(fps, dtype=np.uint8), valid
 
 
 # fingerprints_from_smiles
@@ -361,8 +379,9 @@ def fingerprints_from_smiles(
     smiles: list[str],
     fp_type: str = "morgan",
     n_workers: int | None = None,
+    return_valid: bool = False,
     **kwargs: Any,
-) -> NDArray:
+) -> NDArray | tuple[NDArray, NDArray[np.bool_]]:
     """Compute molecular fingerprints in parallel.
 
     Parameters
@@ -394,16 +413,26 @@ def fingerprints_from_smiles(
           ``min_radius=0``, ``rings=True``.
     n_workers : int or None
         Number of parallel workers. Defaults to ``min(cpu_count, 12)``.
+    return_valid : bool, default False
+        If True, also return one True/False flag per input SMILES saying
+        whether it produced a fingerprint. Use it to line the fingerprints
+        up with :func:`molecular_properties` and :func:`murcko_scaffolds`,
+        which always return one entry per input.
     **kwargs
         Passed to the fingerprint generator.
 
     Returns
     -------
     fps : ndarray of shape ``(n_valid, n_bits)``
-        Fingerprint matrix. Invalid SMILES are silently skipped (a
-        warning is logged with the count). Dtype depends on
-        ``fp_type``: ``uint8`` for Morgan/DRFP/MAP4/MHFP, ``int16`` for
-        MQN, ``int64`` for MXFP.
+        Fingerprint matrix. Invalid SMILES are skipped (a warning is
+        logged with the count). Dtype depends on ``fp_type``: ``uint8``
+        for Morgan/DRFP/MAP4/MHFP, ``int16`` for MQN, ``int64`` for
+        MXFP.
+    valid : ndarray of shape ``(len(smiles),)``, dtype ``bool``
+        Returned only when ``return_valid=True``. ``valid[i]`` is True
+        when ``smiles[i]`` could be read. Indexing any per-input array
+        with it drops the same entries that ``fps`` is missing, so both
+        end up the same length.
 
     Examples
     --------
@@ -417,21 +446,32 @@ def fingerprints_from_smiles(
     (1, 42)
     >>> fps.dtype
     dtype('int16')
-    """
-    # Canonical shapes/dtypes per fp_type for empty returns
-    _EMPTY_SHAPES = {
-        "morgan": (2048, np.uint8),
-        "mqn": (42, np.int16),
-        "mxfp": (217, np.int64),
-        "drfp": (kwargs.get("n_folded_length", 2048), np.uint8),
-        "map4": (kwargs.get("dimensions", 1024), np.uint8),
-        "mhfp": (kwargs.get("length", 2048), np.uint8),
-    }
 
+    Unreadable SMILES get no row, so ask for the flags when other
+    per-molecule arrays have to match up:
+
+    >>> smiles = ["CCO", "not_a_molecule", "c1ccccc1"]
+    >>> fps, valid = fingerprints_from_smiles(smiles, return_valid=True)
+    >>> valid
+    array([ True, False,  True])
+    >>> fps.shape
+    (2, 2048)
+    """
     n = len(smiles)
     if n == 0:
-        ncols, dt = _EMPTY_SHAPES.get(fp_type, (0, np.uint8))
-        return np.empty((0, ncols), dtype=dt)
+        # Nothing to do, but still hand back an array of the width and type
+        # this fp_type would normally produce.
+        empty_shapes = {
+            "morgan": (kwargs.get("n_bits", 2048), np.uint8),
+            "mqn": (42, np.int16),
+            "mxfp": (217, np.int64),
+            "drfp": (kwargs.get("n_folded_length", 2048), np.uint8),
+            "map4": (kwargs.get("dimensions", 1024), np.uint8),
+            "mhfp": (kwargs.get("length", 2048), np.uint8),
+        }
+        ncols, dt = empty_shapes.get(fp_type, (0, np.uint8))
+        empty = np.empty((0, ncols), dtype=dt)
+        return (empty, np.zeros(0, dtype=bool)) if return_valid else empty
 
     if n_workers is None:
         n_workers = _default_n_workers()
@@ -439,7 +479,9 @@ def fingerprints_from_smiles(
 
     # MAP4 has built-in parallelization via calculate_many()
     if fp_type == "map4":
-        return _map4_fingerprints(smiles, n_workers=n_workers, **kwargs)
+        fps, valid = _map4_fingerprints(smiles, n_workers=n_workers, **kwargs)
+        _warn_dropped(valid)
+        return (fps, valid) if return_valid else fps
 
     # All other fingerprints use our Pool wrapper
     ctx = _get_mp_context()
@@ -493,16 +535,15 @@ def fingerprints_from_smiles(
             "Use 'morgan', 'mqn', 'mxfp', 'map4', 'mhfp', or 'drfp'."
         )
 
-    fps_parts = [r for r in batch_results if len(r) > 0]
-    if not fps_parts:
-        ncols, dt = _EMPTY_SHAPES.get(fp_type, (0, np.uint8))
-        return np.empty((0, ncols), dtype=dt)
+    # Each worker got one slice of the input list, and the slices are in order,
+    # so joining the results back together restores the original order. Workers
+    # that parsed nothing return an empty block of the right width, which joins
+    # in without changing anything.
+    fps = np.concatenate([arr for arr, _ in batch_results])
+    valid = np.concatenate([mask for _, mask in batch_results])
 
-    fps = np.concatenate(fps_parts)
-    n_valid = len(fps)
-    if n_valid < n:
-        logger.warning("%d/%d SMILES could not be parsed and were skipped.", n - n_valid, n)
-    return fps
+    _warn_dropped(valid)
+    return (fps, valid) if return_valid else fps
 
 
 # Scaffolds

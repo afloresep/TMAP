@@ -10,7 +10,7 @@ Requirements:
     pip install rdkit
 
 Usage:
-    python examples/smiles_tmap.py
+    python examples/chemistry/smiles_tmap.py
 """
 
 from __future__ import annotations
@@ -23,7 +23,11 @@ from tmap import LSHForest, MinHash, fingerprints_from_smiles, molecular_propert
 from tmap.layout import LayoutConfig, ScalingType, layout_from_lsh_forest
 from tmap.visualization import TmapViz
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
 
 
 def main() -> None:
@@ -32,7 +36,12 @@ def main() -> None:
     smiles = df["smiles"].tolist()
     print(f"Loaded {len(smiles):,} molecules")
 
-    fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+    fps, valid = fingerprints_from_smiles(
+        smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+    )
+    # A SMILES that cannot be read gets no fingerprint, and so no point on the
+    # map. Drop it, so the list still matches the coordinates worked out below.
+    smiles = [smi for smi, ok in zip(smiles, valid) if ok]
     n = fps.shape[0]
     print(f"  Valid fingerprints: {n} x {fps.shape[1]}")
 

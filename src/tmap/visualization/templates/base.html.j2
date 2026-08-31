@@ -19,7 +19,7 @@
       padding: 0;
       width: 100%;
       height: 100%;
-      background: {{ background_color }};
+      background: var(--map-background, {{ background_color }});
       color: #e0e0e0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
@@ -27,6 +27,23 @@
       width: 100vw;
       height: 100vh;
       display: block;
+      outline: none;
+    }
+    #canvas:focus-visible { outline: 3px solid #4a9eff; outline-offset: -3px; }
+    .sr-only {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+    :where(button, input, select, [tabindex]):focus-visible {
+      outline: 2px solid #4a9eff;
+      outline-offset: 2px;
     }
     #title {
       position: fixed;
@@ -71,7 +88,7 @@
       position: fixed;
       top: 0; left: 0;
       width: 100%; height: 100%;
-      background: {{ background_color }};
+      background: var(--map-background, {{ background_color }});
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -84,24 +101,27 @@
     #progress-fill { height: 100%; background: #4a9eff; width: 0%; transition: width 0.2s; }
     #progress-text { margin-top: 10px; font-size: 14px; color: #9ca3af; }
 
-    /* Card stack - pinned cards from single clicks */
+    /* Docked point inspector */
     #card-stack {
       position: fixed;
-      top: 52px;
-      left: 12px;
-      z-index: 100;
-      --card-width: 320px;
-      --card-body-max-height: 420px;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: var(--card-width);
+      z-index: 145;
+      --card-width: 360px;
     }
     #card-stack.hidden { display: none; }
     .card {
-      width: var(--card-width);
+      width: 100%;
+      height: 100%;
       background: rgba(14, 14, 18, 0.86);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 8px;
-      padding: 12px;
+      border: 0;
+      border-left: 1px solid rgba(255,255,255,0.08);
+      border-radius: 0;
+      padding: 16px;
       color: #e0e0e0;
       font-size: 12px;
       box-shadow: 0 12px 32px rgba(0,0,0,0.5);
@@ -112,31 +132,29 @@
     }
     .card-resize-handle {
       position: absolute;
-      right: -2px;
-      bottom: -2px;
-      width: 16px;
-      height: 16px;
-      cursor: nwse-resize;
+      left: -3px;
+      top: 0;
+      width: 7px;
+      height: 100%;
+      cursor: ew-resize;
       z-index: 2;
       touch-action: none;
     }
     .card-resize-handle::before {
       content: "";
       position: absolute;
-      right: 3px;
-      bottom: 3px;
-      width: 9px;
-      height: 9px;
+      left: 2px;
+      top: 0;
+      width: 1px;
+      height: 100%;
       border-radius: 999px;
-      border-right: 2px solid rgba(255, 255, 255, 0.28);
-      border-bottom: 2px solid rgba(255, 255, 255, 0.28);
+      background: transparent;
     }
     .card-resize-handle:hover::before {
-      border-right-color: rgba(74, 158, 255, 0.95);
-      border-bottom-color: rgba(74, 158, 255, 0.95);
+      background: rgba(74, 158, 255, 0.95);
     }
     body.card-resizing {
-      cursor: nwse-resize;
+      cursor: ew-resize;
       user-select: none;
     }
     .card-header {
@@ -154,6 +172,7 @@
       font-size: 11px;
       color: #9ca3af;
     }
+    .card-nav-label { color: #e0e0e0; font-weight: 650; margin-right: 4px; }
     .card-nav button {
       background: #333;
       border: 1px solid #555;
@@ -195,15 +214,28 @@
     .card.minimized .card-header { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
     .card-body {
       overflow-y: auto;
-      max-height: var(--card-body-max-height);
+      max-height: none;
+      flex: 1;
       padding-right: 2px;
     }
     .card-label {
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
+      font-size: 14px;
+      line-height: 1.35;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .card-section-label {
+      margin: 14px 0 7px;
+      color: #777b82;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
     .card-row {
       display: flex;
@@ -255,6 +287,167 @@
     }
     .card-copy-btn:hover { background: #3a8eef; }
     .card-copy-btn.copied { background: #22c55e; }
+    /* Neighborhood Explorer */
+    .neighborhood-section { margin-top: 16px; }
+    .neighborhood-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .neighborhood-title {
+      color: #777b82;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .tree-modes { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .tree-chip {
+      border: 1px solid rgba(74,158,255,0.24);
+      border-radius: 6px;
+      background: rgba(74,158,255,0.08);
+      color: #83beff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 5px 8px;
+    }
+    .tree-chip:hover:not(:disabled),
+    .tree-chip.active { background: rgba(74,158,255,0.18); color: #b4d8ff; }
+    .tree-chip:disabled { opacity: 0.4; cursor: default; }
+    .neighborhood-summary { color: #777b82; font-size: 10px; margin-bottom: 7px; }
+    .tree-endpoint {
+      display: flex; align-items: center; gap: 6px;
+      color: #777b82; font-size: 10px; margin-bottom: 7px;
+    }
+    .tree-endpoint select {
+      flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px; background: rgba(255,255,255,0.04); color: #c6c9cf;
+      font: inherit; font-size: 10px; padding: 3px 4px;
+    }
+    .tree-distance-btn {
+      width: 100%; border: 0; background: transparent; color: #7fb8f0;
+      cursor: pointer; font: inherit; font-size: 10px; padding: 9px 0 2px; text-align: left;
+    }
+    .tree-distance-btn.active { color: #b4d8ff; }
+    .neighbor-step {
+      color: #777b82; font-size: 9px; font-variant-numeric: tabular-nums;
+      align-self: center; text-align: right;
+    }
+    .neighbor-main.with-step { grid-template-columns: 16px 68px minmax(0, 1fr); gap: 6px; }
+    .neighbor-list { border-top: 1px solid rgba(255,255,255,0.07); }
+    .neighbor-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: stretch;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+      transition: background 120ms ease, box-shadow 120ms ease;
+    }
+    .neighbor-row:hover,
+    .neighbor-row.highlighted { background: rgba(74,158,255,0.07); box-shadow: inset 2px 0 #4a9eff; }
+    .neighbor-main {
+      min-width: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 68px minmax(0, 1fr);
+      gap: 9px;
+      padding: 9px 5px 9px 2px;
+      text-align: left;
+      font: inherit;
+    }
+    .neighbor-structure {
+      width: 68px;
+      height: 58px;
+      box-sizing: border-box;
+      border-radius: 5px;
+      background: #fff;
+      color: #999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-size: 9px;
+    }
+    .neighbor-structure svg { width: 68px; height: 58px; }
+    .neighbor-structure img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .neighbor-index {
+      width: 68px;
+      height: 58px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.035);
+      color: #777b82;
+      font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .neighbor-copy { min-width: 0; align-self: center; }
+    .neighbor-topline { display: flex; align-items: baseline; justify-content: space-between; gap: 7px; }
+    .neighbor-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #e5e7eb;
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .neighbor-score { color: #8ac4ff; font-size: 10px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .neighbor-deltas { margin-top: 5px; display: grid; gap: 2px; }
+    .neighbor-delta { color: #777b82; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .neighbor-delta strong { color: #b9bdc4; font-weight: 550; }
+    .neighbor-compare {
+      align-self: center;
+      border: 0;
+      background: transparent;
+      color: #777b82;
+      cursor: pointer;
+      font: inherit;
+      font-size: 9px;
+      padding: 8px 7px;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .neighbor-compare:hover,
+    .neighbor-compare.active { color: #8ac4ff; }
+    .neighborhood-more {
+      width: 100%; border: 0; background: transparent; color: #7fb8f0;
+      cursor: pointer; font: inherit; font-size: 10px; padding: 9px 0 4px;
+    }
+    .comparison-view {
+      margin: 11px 0 2px;
+      padding: 11px 0 3px;
+      border-top: 1px solid rgba(74,158,255,0.22);
+    }
+    .comparison-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .comparison-head strong { color: #dce9f8; font-size: 11px; }
+    .comparison-close { border: 0; background: transparent; color: #777b82; cursor: pointer; font-size: 15px; }
+    .comparison-molecules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 9px 0; }
+    .comparison-molecule { min-width: 0; }
+    .comparison-molecule .neighbor-structure { width: 100%; height: 96px; }
+    .comparison-molecule .neighbor-structure svg { width: 100%; height: 96px; }
+    .comparison-name { color: #9ca3af; font-size: 9px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .comparison-property {
+      display: grid;
+      grid-template-columns: minmax(70px, 1fr) auto auto auto;
+      gap: 7px;
+      padding: 4px 0;
+      border-top: 1px solid rgba(255,255,255,0.045);
+      align-items: baseline;
+      font-size: 9px;
+    }
+    .comparison-property .property-name { color: #777b82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .comparison-property .property-value { color: #c6c9cf; font-variant-numeric: tabular-nums; }
+    .comparison-property .property-delta { color: #8ac4ff; font-variant-numeric: tabular-nums; }
+    .neighborhood-empty { color: #777b82; font-size: 10px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.06); }
     /* Structure rendering for SMILES tooltips and cards */
     #tooltip .structure-container {
       width: 240px;
@@ -351,8 +544,21 @@
       z-index: 100;
       box-shadow: 0 4px 16px rgba(0,0,0,0.5);
       min-width: 280px;
+      box-sizing: border-box;
+      transition: left 0.2s ease, max-width 0.2s ease;
     }
     #export-panel.hidden { display: none; }
+    .tool-panel-open #export-panel {
+      left: calc(var(--tool-panel-width, 360px) + 12px);
+    }
+    .inspector-open #export-panel {
+      max-width: calc(100vw - var(--inspector-width, 360px) - 24px);
+    }
+    .tool-panel-open.inspector-open #export-panel {
+      min-width: 0;
+      max-width: calc(100vw - var(--tool-panel-width, 360px) - var(--inspector-width, 360px) - 36px);
+    }
+    .panel-suppressed { display: none !important; }
     .export-header {
       display: flex;
       justify-content: space-between;
@@ -439,6 +645,9 @@
     #fs-close:hover { color: #fff; background: rgba(255,255,255,0.08); }
     .fs-section { border-bottom: 1px solid rgba(255,255,255,0.04); }
     .fs-section-head {
+      width: 100%;
+      border: 0;
+      background: transparent;
       padding: 10px 16px;
       font-size: 11px; font-weight: 600; color: #aaa;
       cursor: pointer;
@@ -452,6 +661,8 @@
     .fs-section-body { padding: 0 16px 12px; }
     /* Categorical bars */
     .fs-bar-row {
+      width: 100%; border: 0; background: transparent; color: inherit;
+      font-family: inherit;
       display: flex; align-items: center; gap: 8px;
       padding: 3px 0; cursor: pointer; font-size: 11px; border-radius: 3px;
     }
@@ -503,6 +714,7 @@
     .fs-hist-overlay {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       cursor: crosshair;
+      touch-action: none;
     }
     .fs-hist-axis {
       display: flex; justify-content: space-between;
@@ -511,6 +723,32 @@
     .fs-hist-range {
       text-align: center; font-size: 10px; color: #8ac4ff;
       margin-top: 2px; min-height: 14px;
+    }
+    .fs-range-inputs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .fs-range-inputs label {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 5px;
+      margin: 0;
+      font-size: 10px;
+      color: #888;
+    }
+    .fs-range-inputs input {
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px;
+      padding: 4px 5px;
+      background: rgba(255,255,255,0.04);
+      color: #e0e0e0;
+      font-size: 10px;
     }
     /* Card links section */
     .card-links {
@@ -534,6 +772,13 @@
       transition: background 0.12s;
     }
     .card-link:hover { background: rgba(74,158,255,0.14); }
+    .column-link {
+      color: #7fb8f0;
+      text-decoration: underline;
+      text-decoration-color: rgba(127,184,240,0.45);
+      text-underline-offset: 2px;
+    }
+    .column-link:hover { color: #a8d2ff; }
     .card-subtitle {
       font-style: italic;
       color: #9ca3af;
@@ -561,6 +806,9 @@
       box-shadow: 0 8px 28px rgba(0,0,0,0.45);
       z-index: 200;
       user-select: none;
+      max-width: calc(100vw - 24px);
+      box-sizing: border-box;
+      transition: left 0.2s ease, background 0.12s, color 0.12s;
     }
     .tb-group { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
     #tb-count { font-size: 13px; color: #999; white-space: nowrap; }
@@ -678,6 +926,92 @@
       display: flex; align-items: center; gap: 4px;
       font-size: 11px; cursor: pointer; color: #888;
     }
+    #panel-explore,
+    #panel-search {
+      left: 0;
+      right: auto;
+      border-left: 0;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 10px 0 32px rgba(0,0,0,0.45);
+      transform: translateX(-100%);
+    }
+    #panel-explore.open,
+    #panel-search.open { transform: translateX(0); }
+    #panel-search { width: 360px; }
+    #panel-search .panel-body {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .search-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 30px;
+      gap: 8px;
+      padding: 6px 0;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    #search-results { color: #999; font-size: 11px; }
+    .search-nav { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .search-nav.hidden { display: none; }
+    .search-nav button {
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      color: #aaa;
+      cursor: pointer;
+    }
+    .search-nav button:hover:not(:disabled) { color: #fff; background: rgba(255,255,255,0.08); }
+    .search-nav button:disabled { opacity: 0.3; cursor: default; }
+    #search-position { min-width: 42px; color: #888; font-size: 10px; text-align: center; }
+    .search-result-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      margin: 6px -8px 0;
+      padding: 0 8px 8px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.1) transparent;
+    }
+    .search-result-empty { padding: 18px 4px; color: #777; font-size: 11px; text-align: center; }
+    .search-result {
+      display: block;
+      width: 100%;
+      padding: 9px 10px;
+      border: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      border-radius: 7px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .search-result:hover { background: rgba(255,255,255,0.045); }
+    .search-result.active { background: rgba(74,158,255,0.13); box-shadow: inset 2px 0 #4a9eff; }
+    .search-result-title {
+      color: #e3e5e8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .search-result-meta {
+      margin-top: 4px;
+      color: #777b82;
+      font-size: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     #panel-explore .panel-body {
       padding: 0;
       overflow-y: auto;
@@ -704,8 +1038,41 @@
       margin-bottom: 6px;
     }
 
+    /* First-run interaction guide */
+    #interaction-help {
+      position: fixed;
+      right: 18px;
+      bottom: 76px;
+      width: min(330px, calc(100vw - 36px));
+      box-sizing: border-box;
+      z-index: 210;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      background: rgba(14,14,18,0.9);
+      color: #e0e0e0;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.48);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    #interaction-help.hidden { display: none; }
+    .help-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .help-kicker { color: #7fb8f0; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .help-title { margin: 3px 0 0; font-size: 15px; }
+    .help-close {
+      width: 28px; height: 28px; flex: 0 0 auto; padding: 0;
+      border: 0; border-radius: 6px; background: transparent; color: #888;
+      cursor: pointer; font-size: 18px;
+    }
+    .help-close:hover { background: rgba(255,255,255,0.07); color: #fff; }
+    .help-items { display: grid; gap: 9px; margin-top: 14px; }
+    .help-item { display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 11px; line-height: 1.4; }
+    .help-gesture { color: #fff; font-weight: 600; }
+    .help-copy { color: #a7a7ac; }
+    .help-hint { margin: 12px 0 0; color: #77777d; font-size: 10px; }
+
     /* ── Light theme ── */
-    [data-theme="light"], [data-theme="light"] body { background: #0d0d0e !important; color: #1d1d1f; }
+    [data-theme="light"], [data-theme="light"] body { background: var(--map-background, #fff) !important; color: #1d1d1f; }
     [data-theme="light"] #toolbar {
       background: rgba(245, 245, 248, 0.88);
       border-color: rgba(0,0,0,0.08);
@@ -724,6 +1091,8 @@
     [data-theme="light"] .side-panel {
       background: rgba(255,255,255,0.94); border-left-color: rgba(0,0,0,0.08);
     }
+    [data-theme="light"] #panel-explore,
+    [data-theme="light"] #panel-search { border-right-color: rgba(0,0,0,0.08); }
     [data-theme="light"] .panel-title { color: #1d1d1f; }
     [data-theme="light"] .panel-close { color: #aeaeb2; }
     [data-theme="light"] .panel-close:hover { color: #1d1d1f; background: rgba(0,0,0,0.05); }
@@ -751,8 +1120,51 @@
     [data-theme="light"] #tooltip .value { color: #1d1d1f; }
     [data-theme="light"] .card { background: rgba(255,255,255,0.95); border-color: rgba(0,0,0,0.08); color: #1d1d1f; }
     [data-theme="light"] .card-header { border-bottom-color: rgba(0,0,0,0.06); }
+    [data-theme="light"] .card-nav-label { color: #1d1d1f; }
     [data-theme="light"] .card-row .key { color: #6e6e73; }
     [data-theme="light"] .card-row .value { color: #1d1d1f; }
+    [data-theme="light"] .card-copy-row {
+      background: rgba(0,0,0,0.035);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.045);
+    }
+    [data-theme="light"] .card-copy-row .key { color: #6e6e73; }
+    [data-theme="light"] .card-copy-row .value { color: #1d1d1f; }
+    [data-theme="light"] .card-section-label { color: #77777d; }
+    [data-theme="light"] .neighborhood-title,
+    [data-theme="light"] .neighborhood-summary,
+    [data-theme="light"] .neighbor-delta,
+    [data-theme="light"] .neighbor-step,
+    [data-theme="light"] .tree-endpoint,
+    [data-theme="light"] .comparison-property .property-name { color: #77777d; }
+    [data-theme="light"] .tree-endpoint select {
+      border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.02); color: #1d1d1f;
+    }
+    [data-theme="light"] .tree-chip { color: #0a6bd6; }
+    [data-theme="light"] .tree-chip:hover:not(:disabled),
+    [data-theme="light"] .tree-chip.active { background: rgba(0,122,255,0.14); color: #054a95; }
+    [data-theme="light"] .neighborhood-more,
+    [data-theme="light"] .tree-distance-btn { color: #0a6bd6; }
+    [data-theme="light"] .tree-distance-btn.active { color: #054a95; }
+    [data-theme="light"] .neighbor-list,
+    [data-theme="light"] .comparison-view { border-color: rgba(0,0,0,0.09); }
+    [data-theme="light"] .neighbor-row { border-bottom-color: rgba(0,0,0,0.065); }
+    [data-theme="light"] .neighbor-row:hover,
+    [data-theme="light"] .neighbor-row.highlighted { background: rgba(0,122,255,0.055); box-shadow: inset 2px 0 #007aff; }
+    [data-theme="light"] .neighbor-label { color: #1d1d1f; }
+    [data-theme="light"] .neighbor-delta strong,
+    [data-theme="light"] .comparison-property .property-value { color: #4e4e52; }
+    [data-theme="light"] .neighbor-index { background: rgba(0,0,0,0.035); color: #77777d; }
+    [data-theme="light"] .comparison-head strong { color: #1d1d1f; }
+    [data-theme="light"] .comparison-property { border-top-color: rgba(0,0,0,0.055); }
+    [data-theme="light"] .search-summary-row { border-color: rgba(0,0,0,0.07); }
+    [data-theme="light"] #search-results, [data-theme="light"] #search-position { color: #6e6e73; }
+    [data-theme="light"] .search-nav button { border-color: rgba(0,0,0,0.1); background: rgba(0,0,0,0.025); color: #6e6e73; }
+    [data-theme="light"] .search-nav button:hover:not(:disabled) { color: #1d1d1f; background: rgba(0,0,0,0.05); }
+    [data-theme="light"] .search-result { border-bottom-color: rgba(0,0,0,0.055); }
+    [data-theme="light"] .search-result:hover { background: rgba(0,0,0,0.035); }
+    [data-theme="light"] .search-result.active { background: rgba(0,122,255,0.09); box-shadow: inset 2px 0 #007aff; }
+    [data-theme="light"] .search-result-title { color: #1d1d1f; }
+    [data-theme="light"] .search-result-meta { color: #77777d; }
     [data-theme="light"] .fs-section-head { color: #6e6e73; }
     [data-theme="light"] .fs-bar-label { color: #1d1d1f; }
     [data-theme="light"] .fs-bar-track { background: rgba(0,0,0,0.04); }
@@ -760,6 +1172,7 @@
     [data-theme="light"] .fs-bar-count { color: #aeaeb2; }
     [data-theme="light"] .fs-hist-bar { background: rgba(0,0,0,0.1); }
     [data-theme="light"] .fs-hist-axis { color: #aeaeb2; }
+    [data-theme="light"] .fs-range-inputs input { border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.03); color: #1d1d1f; }
     [data-theme="light"] .fs-header { border-bottom-color: rgba(0,0,0,0.06); }
     [data-theme="light"] .fs-title { color: #1d1d1f; }
     [data-theme="light"] #fs-count { color: #6e6e73; }
@@ -767,24 +1180,143 @@
       border-right-color: rgba(0, 0, 0, 0.26);
       border-bottom-color: rgba(0, 0, 0, 0.26);
     }
+    [data-theme="light"] .column-link { color: #006edb; text-decoration-color: rgba(0,110,219,0.35); }
+    [data-theme="light"] #interaction-help { background: rgba(255,255,255,0.94); border-color: rgba(0,0,0,0.08); color: #1d1d1f; }
+    [data-theme="light"] .help-gesture { color: #1d1d1f; }
+    [data-theme="light"] .help-copy { color: #5f6368; }
+    [data-theme="light"] .help-close:hover { background: rgba(0,0,0,0.05); color: #1d1d1f; }
+
+    @media (max-width: 640px) {
+      html, body, #canvas { height: 100svh; }
+      #title {
+        top: max(8px, env(safe-area-inset-top));
+        left: 8px;
+        max-width: calc(100vw - 16px);
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #toolbar {
+        left: 8px !important;
+        right: 8px;
+        bottom: max(8px, env(safe-area-inset-bottom));
+        transform: none;
+        max-width: none;
+        width: auto;
+        justify-content: space-between;
+        padding: 6px;
+        gap: 1px;
+      }
+      .tb-group { min-width: 0; flex: 1 1 auto; padding: 0 4px; }
+      #tb-count { overflow: hidden; text-overflow: ellipsis; }
+      .tb-sep { display: none; }
+      .tb-icon { flex: 0 0 auto; width: 38px; height: 40px; }
+      .tb-slider-wrap { padding: 0 3px; gap: 3px; }
+      .tb-slider-wrap label, .tb-slider-val { display: none; }
+      .tb-slider-wrap input[type="range"] { width: 54px; }
+      .side-panel {
+        top: auto;
+        left: 8px;
+        right: 8px;
+        bottom: calc(70px + env(safe-area-inset-bottom));
+        width: auto !important;
+        height: min(68svh, 580px);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        box-shadow: 0 -12px 36px rgba(0,0,0,0.42);
+        transform: translateY(calc(100% + 80px));
+      }
+      .side-panel.open { transform: translateY(0); }
+      #panel-explore,
+      #panel-search {
+        left: 8px;
+        right: 8px;
+        transform: translateY(calc(100% + 80px));
+      }
+      #panel-explore.open,
+      #panel-search.open { transform: translateY(0); }
+      .panel-head { position: relative; padding-top: 20px; }
+      .panel-head::before {
+        content: "";
+        position: absolute;
+        top: 7px;
+        left: 50%;
+        width: 34px;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.18);
+        transform: translateX(-50%);
+      }
+      [data-theme="light"] .side-panel { border-color: rgba(0,0,0,0.08); }
+      [data-theme="light"] .panel-head::before { background: rgba(0,0,0,0.18); }
+      #card-stack {
+        top: auto;
+        left: 8px;
+        right: 8px;
+        bottom: calc(70px + env(safe-area-inset-bottom));
+        width: auto;
+        --card-width: calc(100vw - 16px);
+        --card-body-max-height: 58svh;
+      }
+      #card-stack .card {
+        width: 100% !important;
+        height: auto;
+        max-height: min(68svh, 580px);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        padding: 14px;
+      }
+      #card-stack .card-body { max-height: 58svh !important; }
+      #card-stack .card-resize-handle { display: none; }
+      #export-panel {
+        left: 8px;
+        right: 8px;
+        bottom: calc(70px + env(safe-area-inset-bottom));
+        min-width: 0;
+        max-width: none !important;
+        max-height: 56svh;
+        overflow-y: auto;
+      }
+      #tooltip { width: min(240px, calc(100vw - 40px)); }
+      #interaction-help {
+        right: 8px;
+        left: 8px;
+        bottom: calc(70px + env(safe-area-inset-bottom));
+        width: auto;
+      }
+    }
+    @media (max-width: 440px) {
+      .tb-slider-wrap { display: none; }
+      .tb-icon { width: 44px; height: 44px; }
+      #tb-count { font-size: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
 {% block extra_styles %}{% endblock %}
   </style>
 </head>
 <body>
-  <div id="loading">
+  <div id="loading" role="status" aria-live="polite">
     <div id="loading-text">Loading visualization...</div>
     <div id="progress-bar"><div id="progress-fill"></div></div>
     <div id="progress-text">Initializing...</div>
   </div>
 
-  <div id="title">{{ title }}</div>
+  <header id="title">{{ title }}</header>
   <!-- Old controls/legend kept hidden; contents moved into panels by JS -->
   <div id="controls" style="display:none">
     <select id="color-select"></select>
     <input type="checkbox" id="edge-toggle" checked>
   </div>
-  <canvas id="canvas"></canvas>
-  <div id="tooltip">
+  <canvas id="canvas" tabindex="0" role="region" aria-label="Interactive TMAP. Use arrow keys to pan, plus and minus to zoom, and zero to reset the view."></canvas>
+  <div id="tooltip" role="tooltip">
     <div class="label" id="tooltip-label"></div>
     <div id="tooltip-content"></div>
     <div class="structure-container hidden" id="tooltip-structure"></div>
@@ -792,8 +1324,8 @@
   </div>
 
   <!-- Explore panel (Color + Filters) -->
-  <div id="panel-explore" class="side-panel" style="width:360px">
-    <div class="panel-head"><span class="panel-title">Explore</span><button class="panel-close" data-panel="explore">&times;</button></div>
+  <aside id="panel-explore" class="side-panel" style="width:360px" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="panel-explore-title">
+    <div class="panel-head"><span class="panel-title" id="panel-explore-title" tabindex="-1">Explore</span><button type="button" class="panel-close" data-panel="explore" aria-label="Close Explore panel">&times;</button></div>
     <div class="panel-body" id="explore-body">
       <div class="explore-section" id="explore-color-section">
         <div class="explore-section-title">Color</div>
@@ -806,75 +1338,104 @@
         <div class="fs-header">
           <span class="fs-title">Filters</span>
           <span id="fs-count"></span>
-          <button id="fs-clear-all" class="hidden">Clear all</button>
+          <button type="button" id="fs-clear-all" class="hidden">Clear all</button>
         </div>
         <div id="fs-sections"></div>
       </div>
     </div>
-  </div>
+  </aside>
 
   <!-- Search panel -->
-  <div id="panel-search" class="side-panel">
-    <div class="panel-head"><span class="panel-title">Search</span><button class="panel-close" data-panel="search">&times;</button></div>
+  <aside id="panel-search" class="side-panel" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="panel-search-title">
+    <div class="panel-head"><span class="panel-title" id="panel-search-title" tabindex="-1">Search</span><button type="button" class="panel-close" data-panel="search" aria-label="Close Search panel">&times;</button></div>
     <div class="panel-body">
       <label for="search-column">Search in column</label>
       <select id="search-column"></select>
       <label for="search-input">Search query</label>
       <div class="search-row">
-        <input type="text" id="search-input" placeholder="Enter search term...">
-        <button class="search-btn" id="search-btn">Search</button>
+        <input type="text" id="search-input" placeholder="Type to search..." autocomplete="off">
+        <button type="button" class="search-btn" id="search-btn">Search</button>
       </div>
       <div class="search-row">
         <label class="partial-match">
-          <input type="checkbox" id="partial-match"> Partial match
+          <input type="checkbox" id="partial-match" checked> Partial match
         </label>
-        <button class="search-btn clear" id="clear-search">Clear</button>
+        <button type="button" class="search-btn clear" id="clear-search">Clear</button>
       </div>
-      <div id="search-results"></div>
+      <div class="search-summary-row">
+        <div id="search-results" role="status" aria-live="polite">Type at least 2 characters</div>
+        <div class="search-nav hidden" id="search-nav" aria-label="Search result navigation">
+          <button type="button" id="search-prev" aria-label="Previous search result">&larr;</button>
+          <span id="search-position"></span>
+          <button type="button" id="search-next" aria-label="Next search result">&rarr;</button>
+        </div>
+      </div>
+      <div id="search-result-list" class="search-result-list" role="list" aria-label="Search results"></div>
     </div>
-  </div>
+  </aside>
 
-  <div id="card-stack" class="hidden"></div>
-  <div id="export-panel" class="hidden">
+  <aside id="card-stack" class="hidden" aria-label="Point inspector" aria-hidden="true" aria-live="polite"></aside>
+  <aside id="export-panel" class="hidden" aria-hidden="true" aria-labelledby="export-title">
     <div class="export-header">
       <span class="export-title" id="export-title">0 points selected</span>
-      <button class="export-close" id="export-close">&times;</button>
+      <button type="button" class="export-close" id="export-close" aria-label="Close export panel">&times;</button>
     </div>
     <div class="export-columns" id="export-columns"></div>
     <div class="export-actions">
-      <button class="export-btn" id="export-csv">Export CSV</button>
-      <button class="export-btn secondary" id="export-tsv">Export TSV</button>
-      <button class="export-btn secondary" id="export-clear">Clear</button>
+      <button type="button" class="export-btn" id="export-csv">Export CSV</button>
+      <button type="button" class="export-btn secondary" id="export-tsv">Export TSV</button>
+      <button type="button" class="export-btn secondary" id="export-clear">Clear</button>
     </div>
-  </div>
+  </aside>
 
   <!-- Toolbar -->
-  <div id="toolbar">
+  <nav id="toolbar" aria-label="Map controls">
     <div class="tb-group">
-      <span id="tb-count"></span>
-      <button id="tb-clear" title="Clear filters">&times;</button>
+      <span id="tb-count" aria-live="polite"></span>
+      <button type="button" id="tb-clear" title="Clear filters" aria-label="Clear active filters">&times;</button>
     </div>
     <span class="tb-sep"></span>
-    <button class="tb-icon" id="tb-filter" data-panel="explore" title="Explore">
+    <button type="button" class="tb-icon" id="tb-filter" data-panel="explore" title="Explore" aria-label="Open Explore panel" aria-controls="panel-explore" aria-expanded="false">
       <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2.5" width="14" height="2" rx="1"/><rect x="3" y="7" width="10" height="2" rx="1"/><rect x="5" y="11.5" width="6" height="2" rx="1"/></svg>
     </button>
-    <button class="tb-icon" id="tb-search" data-panel="search" title="Search">
+    <button type="button" class="tb-icon" id="tb-search" data-panel="search" title="Search" aria-label="Open Search panel" aria-controls="panel-search" aria-expanded="false">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke-linecap="round"/></svg>
     </button>
     <span class="tb-sep"></span>
-    <button class="tb-icon" id="tb-edges" title="Toggle edges">
+    <button type="button" class="tb-icon" id="tb-edges" title="Hide edges" aria-label="Hide edges" aria-pressed="true">
       <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="8" r="2"/><rect x="6" y="7.25" width="4" height="1.5" rx="0.5"/></svg>
     </button>
-    <button class="tb-icon" id="tb-theme" title="Toggle theme">
+    <button type="button" class="tb-icon" id="tb-theme" title="Use light theme" aria-label="Use light theme">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 1.5a6.5 6.5 0 1 0 7.4 9.7A5.5 5.5 0 0 1 6 1.5z"/></svg>
+    </button>
+    <button type="button" class="tb-icon" id="tb-help" title="Interaction guide" aria-label="Open interaction guide" aria-controls="interaction-help" aria-expanded="false">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6.7 6.2a1.55 1.55 0 1 1 2.1 1.45c-.65.3-.8.7-.8 1.35" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".65" fill="currentColor" stroke="none"/></svg>
     </button>
     <span class="tb-sep"></span>
     <div class="tb-slider-wrap">
-      <label>Size</label>
-      <input type="range" id="tb-point-size" min="0.5" max="8" step="0.5" value="3">
-      <span class="tb-slider-val" id="tb-ps-val">3</span>
+      <label for="tb-point-size">Size</label>
+      <input type="range" id="tb-point-size" min="0.5" max="8" step="0.5" value="3" aria-label="Point size">
+      <output class="tb-slider-val" id="tb-ps-val" for="tb-point-size">3</output>
     </div>
-  </div>
+  </nav>
+
+  <aside id="interaction-help" class="hidden" aria-labelledby="interaction-help-title" aria-hidden="true">
+    <div class="help-head">
+      <div>
+        <div class="help-kicker">Quick guide</div>
+        <h2 class="help-title" id="interaction-help-title">Explore the map</h2>
+      </div>
+      <button type="button" class="help-close" id="help-close" aria-label="Close interaction guide">&times;</button>
+    </div>
+    <div class="help-items">
+      <div class="help-item"><span class="help-gesture">Drag</span><span class="help-copy">Pan across the map</span></div>
+      <div class="help-item"><span class="help-gesture">Scroll</span><span class="help-copy">Zoom in and out</span></div>
+      <div class="help-item"><span class="help-gesture">Click</span><span class="help-copy">Inspect and pin a point</span></div>
+      <div class="help-item"><span class="help-gesture">Lasso</span><span class="help-copy">Drag around points to select and export</span></div>
+      <div class="help-item"><span class="help-gesture">Tree</span><span class="help-copy">In the inspector, follow a point's neighbours or trace the path to a second pinned point</span></div>
+    </div>
+    <p class="help-hint">Keyboard: arrows pan, + / - zoom, 0 resets, ? opens this guide.</p>
+  </aside>
 
 {% block extra_elements %}{% endblock %}
   <!-- fflate for decompression -->
@@ -975,6 +1536,25 @@ const layoutOptions = metadata.layoutOptions || [];
 const labelOptions = metadata.labelOptions || [];
 const columnMeta = metadata.columns || {};
 const nEdges = metadata.nEdges || 0;
+
+function normalizeBackground(value) {
+  if (Array.isArray(value) && value.length >= 3) {
+    return [Number(value[0]) || 0, Number(value[1]) || 0, Number(value[2]) || 0, value[3] === undefined ? 1 : Number(value[3])];
+  }
+  return [0, 0, 0, 1];
+}
+function backgroundLuminance(color) {
+  return 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
+}
+function backgroundToCss(color) {
+  return 'rgba(' + Math.round(color[0] * 255) + ',' + Math.round(color[1] * 255) + ',' + Math.round(color[2] * 255) + ',' + color[3] + ')';
+}
+const configuredBackground = normalizeBackground(metadata.backgroundColor);
+const darkBg = backgroundLuminance(configuredBackground) < 0.5 ? configuredBackground : [0, 0, 0, 1];
+const lightBg = backgroundLuminance(configuredBackground) >= 0.5 ? configuredBackground : [1, 1, 1, 1];
+let isDarkTheme = backgroundLuminance(configuredBackground) < 0.5;
+document.documentElement.dataset.theme = isDarkTheme ? '' : 'light';
+document.documentElement.style.setProperty('--map-background', backgroundToCss(configuredBackground));
 
 {% if inline_data %}
 updateProgress(10, 'Decoding coordinates...');
@@ -1142,18 +1722,214 @@ let edgesVisible = hasEdges && N <= 1_000_000;
 let edgesLoaded = false;
 let edgeRegl = null;
 let drawEdgesCmd = null;
+let drawHighlightedEdgesCmd = null;
 let edgeCanvas = null;
+let edgeSources = null;
+let edgeTargets = null;
+let edgeWeights = null;
+let edgeWeightsUseUnitDistance = false;
+let maxGeometricEdgeDistance = 0;
+let adjacencyOffsets = null;
+let adjacencyNeighbors = null;
+let adjacencyEdgeIndices = null;
+let focusedNeighborhoodIndex = -1;
+let highlightedNeighborEdge = null;
+// Cached line coordinates for the highlighted edges. They only change when the
+// selection changes, so we build them once when that happens and reuse them on
+// every frame instead of rebuilding them on each pan or zoom.
+let focusedNeighborhoodPositions = null;
+let hoveredNeighborPositions = null;
+
+function buildNeighborIndex() {
+  if (!edgeSources || !edgeTargets) return;
+  const degree = new Uint32Array(n);
+  for (let i = 0; i < nEdges; i++) {
+    degree[edgeSources[i]]++;
+    degree[edgeTargets[i]]++;
+  }
+  adjacencyOffsets = new Uint32Array(n + 1);
+  for (let i = 0; i < n; i++) adjacencyOffsets[i + 1] = adjacencyOffsets[i] + degree[i];
+  adjacencyNeighbors = new Uint32Array(nEdges * 2);
+  adjacencyEdgeIndices = new Uint32Array(nEdges * 2);
+  const cursor = adjacencyOffsets.slice(0, n);
+  for (let edgeIndex = 0; edgeIndex < nEdges; edgeIndex++) {
+    const source = edgeSources[edgeIndex];
+    const target = edgeTargets[edgeIndex];
+    let pos = cursor[source]++;
+    adjacencyNeighbors[pos] = target;
+    adjacencyEdgeIndices[pos] = edgeIndex;
+    pos = cursor[target]++;
+    adjacencyNeighbors[pos] = source;
+    adjacencyEdgeIndices[pos] = edgeIndex;
+  }
+  // Similarity uses the precomputed edge weights when we have them. Only when
+  // no weights were supplied do we need the distance-based fallback, so we can
+  // skip scanning point coordinates in the common case.
+  maxGeometricEdgeDistance = 0;
+  if (edgeWeights && edgeWeights.length) {
+    let maxWeight = 0;
+    for (let i = 0; i < edgeWeights.length; i++) maxWeight = Math.max(maxWeight, edgeWeights[i]);
+    edgeWeightsUseUnitDistance = maxWeight <= 1.000001;
+  } else {
+    let maxSq = 0;
+    for (let i = 0; i < nEdges; i++) {
+      const dx = x[edgeSources[i]] - x[edgeTargets[i]];
+      const dy = y[edgeSources[i]] - y[edgeTargets[i]];
+      const d2 = dx * dx + dy * dy;
+      if (d2 > maxSq) maxSq = d2;
+    }
+    maxGeometricEdgeDistance = Math.sqrt(maxSq);
+  }
+}
+
+function edgeSimilarity(edgeIndex) {
+  if (edgeWeights && edgeIndex >= 0 && edgeIndex < edgeWeights.length) {
+    const distance = Math.max(0, Number(edgeWeights[edgeIndex]));
+    return Math.max(0, Math.min(1, edgeWeightsUseUnitDistance ? 1 - distance : 1 / (1 + distance)));
+  }
+  if (!edgeSources || maxGeometricEdgeDistance <= 0) return 0;
+  const source = edgeSources[edgeIndex];
+  const target = edgeTargets[edgeIndex];
+  const dx = x[source] - x[target];
+  const dy = y[source] - y[target];
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  return Math.max(0, Math.min(1, 1 - distance / maxGeometricEdgeDistance));
+}
+
+function connectedNeighbors(idx) {
+  if (!adjacencyOffsets || idx < 0 || idx >= n) return [];
+  const neighbors = [];
+  for (let pos = adjacencyOffsets[idx]; pos < adjacencyOffsets[idx + 1]; pos++) {
+    const edgeIndex = adjacencyEdgeIndices[pos];
+    neighbors.push({
+      idx: adjacencyNeighbors[pos],
+      edgeIndex,
+      similarity: edgeSimilarity(edgeIndex),
+    });
+  }
+  neighbors.sort((a, b) => b.similarity - a.similarity || a.idx - b.idx);
+  return neighbors;
+}
+
+// === Tree traversal ===
+// Paths and tree-distance colouring are both one breadth-first
+// walk over the adjacency index built above. The scratch buffers below are
+// allocated once and reused, so repeating a walk costs no allocation: 12 bytes
+// per point.
+let bfsOrder = null;
+let bfsParent = null;
+let bfsDistance = null;
+let bfsCount = 0;
+let bfsSource = -1;
+let bfsBlocked = -1;
+
+function edgeLength(edgeIndex) {
+  if (edgeWeights && edgeIndex >= 0 && edgeIndex < edgeWeights.length) {
+    return Math.max(0, Number(edgeWeights[edgeIndex]));
+  }
+  if (!edgeSources) return 1;
+  const source = edgeSources[edgeIndex];
+  const target = edgeTargets[edgeIndex];
+  const dx = x[source] - x[target];
+  const dy = y[source] - y[target];
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Walk the tree from a source point, optionally refusing to pass through one
+// blocked point. Fills bfsOrder/bfsParent/bfsDistance and returns how many
+// nodes were reached.
+// Only the nodes actually visited are cleared afterwards, so a walk that stops
+// early stays proportional to what it reached, not to the whole map.
+function treeBfs(source, blocked = -1) {
+  if (!adjacencyOffsets || source < 0 || source >= n) return 0;
+  if (source === bfsSource && blocked === bfsBlocked) return bfsCount;
+  if (!bfsOrder) {
+    bfsOrder = new Int32Array(n);
+    bfsParent = new Int32Array(n).fill(-1);
+    bfsDistance = new Float32Array(n);
+  }
+  for (let i = 0; i < bfsCount; i++) bfsParent[bfsOrder[i]] = -1;
+  bfsSource = source;
+  bfsBlocked = blocked;
+  bfsParent[source] = source;
+  bfsDistance[source] = 0;
+  bfsOrder[0] = source;
+  let head = 0;
+  let tail = 1;
+  while (head < tail) {
+    const node = bfsOrder[head++];
+    const base = bfsDistance[node];
+    for (let pos = adjacencyOffsets[node]; pos < adjacencyOffsets[node + 1]; pos++) {
+      const next = adjacencyNeighbors[pos];
+      if (next === blocked || bfsParent[next] !== -1) continue;
+      bfsParent[next] = node;
+      bfsDistance[next] = base + edgeLength(adjacencyEdgeIndices[pos]);
+      bfsOrder[tail++] = next;
+    }
+  }
+  bfsCount = tail;
+  return bfsCount;
+}
+
+// Nodes along the tree path between two points, inclusive of both ends. Empty
+// when the two points sit in different components of a disconnected map.
+function treePath(from, to) {
+  if (from < 0 || to < 0 || from >= n || to >= n) return [];
+  treeBfs(from);
+  if (to !== from && bfsParent[to] === -1) return [];
+  const path = [];
+  let node = to;
+  for (let guard = 0; guard <= bfsCount; guard++) {
+    path.push(node);
+    if (node === from) break;
+    node = bfsParent[node];
+  }
+  path.reverse();
+  return path;
+}
+
+// Length of the tree path in edge weights (or in plotted distance when the map
+// carries no weights).
+function treePathLength(path) {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    for (let pos = adjacencyOffsets[path[i - 1]]; pos < adjacencyOffsets[path[i - 1] + 1]; pos++) {
+      if (adjacencyNeighbors[pos] !== path[i]) continue;
+      total += edgeLength(adjacencyEdgeIndices[pos]);
+      break;
+    }
+  }
+  return total;
+}
 
 function parseEdgeColor(str) {
   const m = str.match(/rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*(?:,\\s*([\\d.]+))?\\s*\\)/);
   if (m) return [+m[1]/255, +m[2]/255, +m[3]/255, m[4] !== undefined ? +m[4] : 1];
   return [0, 0, 0, 0.5];
 }
-let edgeColor = parseEdgeColor(edgeStrokeStyle);
+const configuredEdgeColor = parseEdgeColor(edgeStrokeStyle);
+function edgeColorForBackground(background) {
+  const edgeLum = backgroundLuminance(configuredEdgeColor);
+  const bgLum = backgroundLuminance(background);
+  if (Math.abs(edgeLum - bgLum) < 0.28) {
+    return bgLum < 0.5
+      ? [1, 1, 1, configuredEdgeColor[3]]
+      : [0, 0, 0, configuredEdgeColor[3]];
+  }
+  return configuredEdgeColor.slice();
+}
+let edgeColor = edgeColorForBackground(configuredBackground);
 
 const edgeToggle = document.getElementById('edge-toggle');
 const tbEdges = document.getElementById('tb-edges');
-if (tbEdges && edgesVisible) tbEdges.classList.add('on');
+function updateEdgesButton() {
+  if (!tbEdges) return;
+  tbEdges.classList.toggle('on', edgesVisible);
+  tbEdges.setAttribute('aria-pressed', String(edgesVisible));
+  tbEdges.setAttribute('aria-label', edgesVisible ? 'Hide edges' : 'Show edges');
+  tbEdges.title = edgesVisible ? 'Hide edges' : 'Show edges';
+}
+updateEdgesButton();
 
 function resizeEdgeCanvas() {
   if (!edgeCanvas) return;
@@ -1186,8 +1962,19 @@ async function loadEdges() {
   const buf = await fetch('./edges.bin').then(r => r.arrayBuffer());
 {% endif %}
   const raw = decodeGzipBuffer(buf, 'uint32');
-  const eS = raw.subarray(0, nEdges);
-  const eT = raw.subarray(nEdges, 2 * nEdges);
+  edgeSources = raw.subarray(0, nEdges);
+  edgeTargets = raw.subarray(nEdges, 2 * nEdges);
+
+  if (metadata.hasEdgeWeights) {
+{% if inline_data %}
+    const weightsRaw = Uint8Array.from(atob("{{ inline_edge_weights }}"), c => c.charCodeAt(0));
+    edgeWeights = decodeGzipBuffer(weightsRaw.buffer, 'float32');
+{% else %}
+    const weightsBuffer = await fetch('./edge_weights.bin').then(r => r.arrayBuffer());
+    edgeWeights = decodeGzipBuffer(weightsBuffer, 'float32');
+{% endif %}
+  }
+  buildNeighborIndex();
 
   // Interleaved position buffer from point coordinates
   const positions = new Float32Array(n * 2);
@@ -1199,8 +1986,8 @@ async function loadEdges() {
   // Element index buffer: pairs of vertex indices per edge
   const elements = new Uint32Array(nEdges * 2);
   for (let i = 0; i < nEdges; i++) {
-    elements[i * 2] = eS[i];
-    elements[i * 2 + 1] = eT[i];
+    elements[i * 2] = edgeSources[i];
+    elements[i * 2 + 1] = edgeTargets[i];
   }
 
   edgeRegl = createREGL({
@@ -1231,12 +2018,57 @@ async function loadEdges() {
     depth: { enable: false },
   });
 
+  drawHighlightedEdgesCmd = edgeRegl({
+    vert: vertSrc,
+    frag: fragSrc,
+    attributes: {
+      position: edgeRegl.prop('positions'),
+    },
+    primitive: 'lines',
+    count: edgeRegl.prop('count'),
+    uniforms: {
+      u_scale: edgeRegl.prop('scale'),
+      u_offset: edgeRegl.prop('offset'),
+      u_color: edgeRegl.prop('color'),
+    },
+    blend: {
+      enable: true,
+      func: { srcRGB: 'src alpha', srcAlpha: 1, dstRGB: 'one minus src alpha', dstAlpha: 1 },
+    },
+    depth: { enable: false },
+  });
+
   edgesLoaded = true;
   edgeNeedsRedraw = true;
 }
 
+function edgePositionsForNeighborhood(idx, onlyNeighbor = -1) {
+  const neighbors = connectedNeighbors(idx);
+  const matching = onlyNeighbor >= 0 ? neighbors.filter(item => item.idx === onlyNeighbor) : neighbors;
+  const positions = new Float32Array(matching.length * 4);
+  matching.forEach((item, i) => {
+    positions[i * 4] = x[idx];
+    positions[i * 4 + 1] = y[idx];
+    positions[i * 4 + 2] = x[item.idx];
+    positions[i * 4 + 3] = y[item.idx];
+  });
+  return positions;
+}
+
+function edgePositionsForPath(path) {
+  const segments = Math.max(0, path.length - 1);
+  const positions = new Float32Array(segments * 4);
+  for (let i = 0; i < segments; i++) {
+    positions[i * 4] = x[path[i]];
+    positions[i * 4 + 1] = y[path[i]];
+    positions[i * 4 + 2] = x[path[i + 1]];
+    positions[i * 4 + 3] = y[path[i + 1]];
+  }
+  return positions;
+}
+
 function renderEdges() {
-  if (!edgesLoaded || !edgesVisible || !edgeRegl) return;
+  if (!edgesLoaded || !edgeRegl) return;
   edgeRegl.poll();
   edgeRegl.clear({ color: [0, 0, 0, 0] });
 
@@ -1246,11 +2078,28 @@ function renderEdges() {
   const xRange = xd[1] - xd[0] || 1;
   const yRange = yd[1] - yd[0] || 1;
 
-  drawEdgesCmd({
-    scale: [2 / xRange, 2 / yRange],
-    offset: [-(xd[1] + xd[0]) / xRange, -(yd[1] + yd[0]) / yRange],
-    color: edgeColor,
-  });
+  const scale = [2 / xRange, 2 / yRange];
+  const offset = [-(xd[1] + xd[0]) / xRange, -(yd[1] + yd[0]) / yRange];
+  if (edgesVisible) {
+    const normalColor = edgeColor.slice();
+    if (focusedNeighborhoodIndex >= 0) normalColor[3] *= 0.16;
+    drawEdgesCmd({ scale, offset, color: normalColor });
+  }
+  if (focusedNeighborhoodIndex >= 0 && drawHighlightedEdgesCmd
+      && focusedNeighborhoodPositions && focusedNeighborhoodPositions.length) {
+    drawHighlightedEdgesCmd({
+      positions: focusedNeighborhoodPositions,
+      count: focusedNeighborhoodPositions.length / 2,
+      scale, offset, color: [0.29, 0.62, 1, 0.62],
+    });
+  }
+  if (highlightedNeighborEdge && drawHighlightedEdgesCmd
+      && hoveredNeighborPositions && hoveredNeighborPositions.length) {
+    drawHighlightedEdgesCmd({
+      positions: hoveredNeighborPositions,
+      count: 2, scale, offset, color: [0.38, 0.74, 1, 1],
+    });
+  }
   edgeNeedsRedraw = false;
 }
 
@@ -1258,7 +2107,7 @@ const redrawEdges = renderEdges;
 
 if (hasEdges) {
   scatterplot.subscribe('drawing', (event) => {
-    if (!edgesVisible || !edgesLoaded) return;
+    if (!edgesLoaded || (!edgesVisible && focusedNeighborhoodIndex < 0 && !highlightedNeighborEdge)) return;
     if (edgeNeedsRedraw || (event && event.isViewChanged)) renderEdges();
   });
 
@@ -1266,17 +2115,17 @@ if (hasEdges) {
 
   async function toggleEdges() {
     edgesVisible = !edgesVisible;
-    if (tbEdges) tbEdges.classList.toggle('on', edgesVisible);
+    updateEdgesButton();
     if (edgesVisible && !edgesLoaded) {
       try { await loadEdges(); } catch (err) {
         console.error('Failed to load edges:', err);
         edgesVisible = false;
-        if (tbEdges) tbEdges.classList.remove('on');
+        updateEdgesButton();
         return;
       }
     }
-    if (edgesVisible) { edgeNeedsRedraw = true; renderEdges(); }
-    else if (edgeRegl) { edgeRegl.poll(); edgeRegl.clear({ color: [0, 0, 0, 0] }); }
+    edgeNeedsRedraw = true;
+    renderEdges();
   }
   if (tbEdges) tbEdges.addEventListener('click', toggleEdges);
 
@@ -1363,12 +2212,69 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function formatValue(val) {
+function getColumnUi(columnName) {
+  return (columnMeta[columnName] && columnMeta[columnName].ui) || {};
+}
+
+function getColumnDisplayName(columnName) {
+  return getColumnUi(columnName).displayName || columnName;
+}
+
+function formatValueText(val, columnName = '') {
+  if (val === null || val === undefined) return '';
+  const format = getColumnUi(columnName).format || '';
+  const numeric = typeof val === 'number' ? val : Number(val);
+  if (format && Number.isFinite(numeric)) {
+    const [kind, arg] = String(format).split(':', 2);
+    const digits = Number.isFinite(Number(arg)) ? Math.max(0, Math.min(12, Number(arg))) : 2;
+    if (kind === 'fixed') return numeric.toFixed(digits);
+    if (kind === 'percent') return (numeric * 100).toFixed(digits) + '%';
+    if (kind === 'scientific') return numeric.toExponential(digits);
+    if (kind === 'integer') return Math.round(numeric).toLocaleString();
+    if (kind === 'stars') {
+      const total = Number.isFinite(Number(arg)) ? Math.max(1, Math.min(10, Math.round(Number(arg)))) : 5;
+      const filled = Math.max(0, Math.min(total, Math.round(numeric)));
+      return '\u2605'.repeat(filled) + '\u2606'.repeat(total - filled);
+    }
+  }
   if (typeof val === 'number') {
     if (Number.isInteger(val)) return val.toLocaleString();
     return parseFloat(val.toFixed(3)).toString();
   }
-  return escapeHtml(val);
+  return String(val);
+}
+
+function formatValue(val, columnName = '') {
+  return escapeHtml(formatValueText(val, columnName));
+}
+
+function truncatePlainText(value, maxLen) {
+  const text = String(value ?? '');
+  if (text.length <= maxLen) return text;
+  return text.substring(0, maxLen - 3) + '...';
+}
+
+function resolveColumnLink(columnName, idx) {
+  const template = getColumnUi(columnName).linkTemplate;
+  if (!template) return null;
+  const resolved = String(template).replace(/\{([^}]+)\}/g, (match, name) => {
+    const col = columns[name];
+    return col && col.values[idx] !== undefined ? encodeURIComponent(String(col.values[idx])) : match;
+  });
+  try {
+    const url = new URL(resolved, window.location.href);
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderColumnValue(columnName, value, idx, maxLen = 30) {
+  const text = escapeHtml(truncatePlainText(formatValueText(value, columnName), maxLen));
+  const href = resolveColumnLink(columnName, idx);
+  return href
+    ? '<a class="column-link" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' + text + '</a>'
+    : text;
 }
 
 function buildGradient(colors) {
@@ -1392,7 +2298,7 @@ function updateLegend(columnName, col) {
   }
 
   const cmap = (col.colormap && colormaps[col.colormap]) || [fallbackPointColor];
-  legendTitle.textContent = columnName;
+  legendTitle.textContent = getColumnDisplayName(columnName);
 
   if (col.dtype === 'categorical') {
     // Use the sorted mapping built by applyColor
@@ -1400,15 +2306,15 @@ function updateLegend(columnName, col) {
     let html = '';
     for (let i = 0; i < sortedItems.length; i++) {
       html += '<div class="legend-item"><span class="legend-swatch" style="background:' +
-        cmap[i % cmap.length] + '"></span><span>' + escapeHtml(sortedItems[i]) + '</span></div>';
+        cmap[i % cmap.length] + '"></span><span>' + formatValue(sortedItems[i], columnName) + '</span></div>';
     }
     legendContent.innerHTML = html;
   } else {
     const mapping = buildContinuousMapping(col.values, cmap);
     let legendHtml =
       '<div class="legend-gradient" style="background:' + buildGradient(cmap) + '"></div>' +
-      '<div class="legend-range"><span>' + formatValue(mapping.min) + '</span><span>' +
-      formatValue(mapping.max) + '</span></div>';
+      '<div class="legend-range"><span>' + formatValue(mapping.min, columnName) + '</span><span>' +
+      formatValue(mapping.max, columnName) + '</span></div>';
     if (mapping.hasNaN) {
       legendHtml +=
         '<div class="legend-item"><span class="legend-swatch" style="background:' +
@@ -1420,6 +2326,7 @@ function updateLegend(columnName, col) {
 
 // Tooltip
 let mouseX = 0, mouseY = 0;
+let suppressProgrammaticTooltip = false;
 canvas.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 
 function showTooltip(idx) {
@@ -1435,7 +2342,7 @@ function showTooltip(idx) {
     const col = columns[name];
     if (!col) continue;
     const val = col.values[idx];
-    html += '<div class="row"><span class="key">' + escapeHtml(name) + '</span><span class="value">' + formatValue(val) + '</span></div>';
+    html += '<div class="row"><span class="key">' + escapeHtml(getColumnDisplayName(name)) + '</span><span class="value">' + formatValue(val, name) + '</span></div>';
   }
   tooltipContent.innerHTML = html;
 
@@ -1451,8 +2358,12 @@ function showTooltip(idx) {
 
 function hideTooltip() { tooltip.classList.remove('visible'); }
 
-scatterplot.subscribe('pointover', (idx) => showTooltip(idx));
-scatterplot.subscribe('pointout', hideTooltip);
+scatterplot.subscribe('pointover', (idx) => {
+  if (!suppressProgrammaticTooltip) showTooltip(idx);
+});
+scatterplot.subscribe('pointout', () => {
+  if (!suppressProgrammaticTooltip) hideTooltip();
+});
 
 // Resize — unified handler for scatterplot, edges, and UI.
 // Use window.innerWidth/Height because scatterplot.set() overwrites
@@ -1460,14 +2371,22 @@ scatterplot.subscribe('pointout', hideTooltip);
 // return the stale old size.  set() internally updates canvas pixel
 // dimensions, scale ranges, and queues a redraw; the 'drawing' event
 // then triggers edge redraw via edgeNeedsRedraw.
-window.addEventListener('resize', () => {
+let cardSizingReady = false;
+function resizeVisualization() {
   scatterplot.set({ width: window.innerWidth, height: window.innerHeight });
   if (hasEdges) {
     resizeEdgeCanvas();
   }
-  cardBodyMaxHeight = clampCardBodyHeight(cardBodyMaxHeight);
-  applyCardSize();
-});
+  if (cardSizingReady) {
+    cardBodyMaxHeight = clampCardBodyHeight(cardBodyMaxHeight);
+    applyCardSize();
+  }
+}
+window.addEventListener('resize', resizeVisualization);
+window.visualViewport?.addEventListener('resize', resizeVisualization);
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(resizeVisualization).observe(document.documentElement);
+}
 
 // Color selector
 for (const name of layoutOptions) {
@@ -1476,11 +2395,19 @@ for (const name of layoutOptions) {
   const opt = document.createElement('option');
   opt.value = name;
   const dtype = meta.dictionary ? 'categorical' : (meta.dtype === 'float32' ? 'continuous' : meta.dtype);
-  opt.textContent = name + ' (' + dtype + ')';
+  opt.textContent = getColumnDisplayName(name) + ' (' + dtype + ')';
   colorSelect.appendChild(opt);
 }
 if (initialColor) colorSelect.value = initialColor;
-colorSelect.addEventListener('change', (e) => applyColor(e.target.value));
+colorSelect.addEventListener('change', (e) => {
+  // Picking any other layout retires the synthetic tree-distance column, so the
+  // inspector button and the dropdown never disagree about what is on screen.
+  if (e.target.value !== TREE_DISTANCE_COLUMN && treeDistanceAnchor >= 0) {
+    retireTreeDistanceColumn();
+    if (pinnedCards.length) rerenderCardPreservingScroll('.tree-distance-btn');
+  }
+  applyColor(e.target.value);
+});
 
 // Initial render
 updateProgress(95, 'Rendering...');
@@ -1499,15 +2426,26 @@ console.log('Loaded ' + n.toLocaleString() + ' points (server mode)');
 const cardStack = document.getElementById('card-stack');
 const CARD_WIDTH_STORAGE_KEY = 'tmap.card.width';
 const CARD_BODY_HEIGHT_STORAGE_KEY = 'tmap.card.bodyMaxHeight';
-const CARD_WIDTH_DEFAULT = 320;
-const CARD_WIDTH_MIN = 280;
+const CARD_WIDTH_DEFAULT = 360;
+const CARD_WIDTH_MIN = 320;
 const CARD_WIDTH_MAX = 520;
 const CARD_BODY_HEIGHT_DEFAULT = 420;
 const CARD_BODY_HEIGHT_MIN = 220;
 const pinnedCards = []; // Array of point indices
 let currentCardIndex = 0;
+let comparisonIndex = -1;
+// Which view of the tree the inspector is showing: 'off', 'neighbors' or
+// 'path'. The two chips in the section head are this one value.
+let treeFocusMode = 'off';
+let pathTargetIndex = -1;
+let treeDistanceAnchor = -1;
+const expandedNeighborhoods = new Set();
 
 const MAX_CARDS = 50;
+const MAX_VISIBLE_NEIGHBORS = 6;
+// A tree path can run to hundreds of nodes. Rendering them all at once is the
+// single most expensive thing the inspector does, so the list starts short.
+const MAX_VISIBLE_PATH_NODES = 20;
 
 function clampCardWidth(width) {
   const w = Number(width);
@@ -1545,21 +2483,52 @@ let cardBodyMaxHeight = (
   storedCardBodyHeight === null ? CARD_BODY_HEIGHT_DEFAULT : storedCardBodyHeight
 );
 let hasCardSizeOverride = storedCardWidth !== null || storedCardBodyHeight !== null;
+const toolbarEl = document.getElementById('toolbar');
+
+function updateWorkspaceLayout() {
+  const root = document.documentElement;
+  const openToolPanel = document.querySelector('.side-panel.open');
+  const compactLayout = window.innerWidth <= 640;
+  const inspectorOpen = root.classList.contains('inspector-open');
+  const toolPanelWidth = openToolPanel ? openToolPanel.getBoundingClientRect().width : 0;
+  const inspectorWidth = inspectorOpen
+    ? (cardStack.getBoundingClientRect().width || cardWidth)
+    : 0;
+
+  root.classList.toggle('tool-panel-open', Boolean(openToolPanel));
+  root.style.setProperty('--tool-panel-width', toolPanelWidth + 'px');
+
+  const exportEl = document.getElementById('export-panel');
+  const exportVisible = exportEl && !exportEl.classList.contains('hidden');
+  const suppressExport = compactLayout && Boolean(openToolPanel) && exportVisible;
+  const suppressInspector = compactLayout && inspectorOpen
+    && (Boolean(openToolPanel) || exportVisible);
+
+  cardStack.classList.toggle('panel-suppressed', suppressInspector);
+  if (inspectorOpen) cardStack.setAttribute('aria-hidden', String(suppressInspector));
+
+  exportEl?.classList.toggle('panel-suppressed', suppressExport);
+  if (exportVisible) exportEl.setAttribute('aria-hidden', String(suppressExport));
+
+  if (!compactLayout && (toolPanelWidth > 0 || inspectorWidth > 0)) {
+    const workspaceCenter = (toolPanelWidth + window.innerWidth - inspectorWidth) / 2;
+    toolbarEl.style.left = workspaceCenter + 'px';
+  } else {
+    toolbarEl.style.removeProperty('left');
+  }
+}
 
 function applyCardSize() {
   cardBodyMaxHeight = clampCardBodyHeight(cardBodyMaxHeight);
   cardStack.style.setProperty('--card-width', cardWidth + 'px');
-  cardStack.style.setProperty('--card-body-max-height', cardBodyMaxHeight + 'px');
+  document.documentElement.style.setProperty('--inspector-width', cardWidth + 'px');
+  document.documentElement.style.setProperty('--inspector-offset', (cardWidth / 2) + 'px');
+  updateWorkspaceLayout();
   const card = cardStack.querySelector('.card');
   const cardBody = cardStack.querySelector('.card-body');
   if (!card || !cardBody) return;
-  if (hasCardSizeOverride) {
-    card.style.setProperty('width', cardWidth + 'px', 'important');
-    cardBody.style.setProperty('max-height', cardBodyMaxHeight + 'px', 'important');
-  } else {
-    card.style.removeProperty('width');
-    cardBody.style.removeProperty('max-height');
-  }
+  card.style.removeProperty('width');
+  cardBody.style.removeProperty('max-height');
 }
 
 function setCardSize(width, bodyHeight, persist = true) {
@@ -1576,6 +2545,7 @@ function setCardSize(width, bodyHeight, persist = true) {
   }
 }
 
+cardSizingReady = true;
 applyCardSize();
 
 function startCardResize(e) {
@@ -1585,7 +2555,6 @@ function startCardResize(e) {
   const handle = e.currentTarget;
   const pointerId = e.pointerId;
   const startX = e.clientX;
-  const startY = e.clientY;
   const startWidth = cardWidth;
   const startBodyHeight = cardBodyMaxHeight;
   document.body.classList.add('card-resizing');
@@ -1597,8 +2566,7 @@ function startCardResize(e) {
   function onMove(ev) {
     if (pointerId !== undefined && ev.pointerId !== pointerId) return;
     const deltaX = ev.clientX - startX;
-    const deltaY = ev.clientY - startY;
-    setCardSize(startWidth + deltaX, startBodyHeight + deltaY, false);
+    setCardSize(startWidth - deltaX, startBodyHeight, false);
   }
 
   function onUp(ev) {
@@ -1628,8 +2596,384 @@ function getLabel(idx) {
   return 'Point ' + idx;
 }
 
+function comparisonColumnNames(cardConfig) {
+  // Numbers to compare between two points. Unless the card names its own
+  // fields, use the columns the map already shows: filter panel first, then
+  // color layouts. A map built only with add_filter has no color layouts,
+  // so listing both keeps the comparison working either way.
+  const preferred = cardConfig && cardConfig.fields
+    ? cardConfig.fields
+    : [...new Set([...filterColumnNames, ...layoutOptions])];
+  const result = [];
+  for (const name of preferred) {
+    const col = columns[name];
+    if (!col || col.dtype === 'categorical') continue;
+    const sample = Number(col.values[0]);
+    if (!Number.isFinite(sample)) continue;
+    result.push(name);
+    if (result.length >= 3) break;
+  }
+  return result;
+}
+
+function formatPropertyDelta(columnName, fromValue, toValue) {
+  const from = Number(fromValue);
+  const to = Number(toValue);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  let delta = to - from;
+  const format = getColumnUi(columnName).format || '';
+  if (String(format).startsWith('percent:')) {
+    delta *= 100;
+    const digits = Math.max(0, Math.min(6, Number(String(format).split(':')[1]) || 1));
+    return (delta > 0 ? '+' : '') + delta.toFixed(digits) + ' pp';
+  }
+  const abs = Math.abs(delta);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : abs >= 1 ? 2 : 3;
+  const rounded = Number(delta.toFixed(digits));
+  return (rounded > 0 ? '+' : '') + String(rounded);
+}
+
+function moleculePreviewMarkup(pointIndex, idPrefix) {
+  const smilesCol = metadata.smilesColumn ? columns[metadata.smilesColumn] : null;
+  const smiles = smilesCol ? smilesCol.values[pointIndex] : '';
+  if (typeof smiles === 'string' && smiles.trim()) {
+    const svgId = idPrefix + '-' + pointIndex;
+    return '<span class="neighbor-structure" data-smiles="' + escapeHtml(smiles) + '">' +
+      '<svg id="' + escapeHtml(svgId) + '" aria-label="Molecular structure"></svg></span>';
+  }
+  // No SMILES, so show the point's image if the map has an image column.
+  const imagesCol = metadata.imagesColumn ? columns[metadata.imagesColumn] : null;
+  const imageUri = imagesCol ? imagesCol.values[pointIndex] : '';
+  if (typeof imageUri === 'string' && imageUri.startsWith('data:')) {
+    return '<span class="neighbor-structure">' +
+      '<img src="' + escapeHtml(imageUri) + '" loading="lazy" alt="Point image"></span>';
+  }
+  return '<span class="neighbor-index">#' + (pointIndex + 1).toLocaleString() + '</span>';
+}
+
+function renderComparisonView(idx, neighborIdx, propertyColumns) {
+  if (neighborIdx < 0) return '';
+  let html = '<section class="comparison-view" aria-label="Molecule comparison">';
+  html += '<div class="comparison-head"><strong>Side-by-side comparison</strong>';
+  html += '<button type="button" class="comparison-close" aria-label="Close comparison">&times;</button></div>';
+  html += '<div class="comparison-molecules">';
+  html += '<div class="comparison-molecule">' + moleculePreviewMarkup(idx, 'comparison-current') +
+    '<div class="comparison-name">Current · ' + truncateString(getLabel(idx), 28) + '</div></div>';
+  html += '<div class="comparison-molecule">' + moleculePreviewMarkup(neighborIdx, 'comparison-neighbor') +
+    '<div class="comparison-name">Neighbor · ' + truncateString(getLabel(neighborIdx), 28) + '</div></div>';
+  html += '</div>';
+  for (const name of propertyColumns) {
+    const col = columns[name];
+    if (!col) continue;
+    const currentValue = col.values[idx];
+    const neighborValue = col.values[neighborIdx];
+    html += '<div class="comparison-property">';
+    html += '<span class="property-name">' + escapeHtml(getColumnDisplayName(name)) + '</span>';
+    html += '<span class="property-value">' + formatValue(currentValue, name) + '</span>';
+    html += '<span class="property-value">' + formatValue(neighborValue, name) + '</span>';
+    html += '<span class="property-delta">' + escapeHtml(formatPropertyDelta(name, currentValue, neighborValue)) + '</span>';
+    html += '</div>';
+  }
+  html += '</section>';
+  return html;
+}
+
+// One row of the tree list. The two modes differ only in the badge on the right
+// and in which edge lights up on hover, so they share this markup.
+function renderTreeRow(anchorIdx, rowIdx, propertyColumns, options = {}) {
+  let attrs = ' data-neighbor="' + rowIdx + '"';
+  if (options.hoverFrom !== undefined) attrs += ' data-hover-from="' + options.hoverFrom + '"';
+
+  let html = '<div class="neighbor-row" role="listitem"' + attrs + '>';
+  html += '<button type="button" class="neighbor-main' + (options.step === undefined ? '' : ' with-step') +
+    '" data-neighbor-navigate="' + rowIdx + '" aria-label="Open ' +
+    escapeHtml(truncatePlainText(getLabel(rowIdx), 50)) + '">';
+  if (options.step !== undefined) {
+    html += '<span class="neighbor-step">' + options.step + '</span>';
+  }
+  html += moleculePreviewMarkup(rowIdx, 'neighbor-structure');
+  html += '<span class="neighbor-copy"><span class="neighbor-topline">';
+  html += '<span class="neighbor-label" title="' + escapeHtml(getLabel(rowIdx)) + '">' +
+    truncateString(getLabel(rowIdx), 30) + '</span>';
+  html += '<span class="neighbor-score">' + escapeHtml(options.badge || '') + '</span></span>';
+  if (propertyColumns.length) {
+    html += '<span class="neighbor-deltas">';
+    for (const name of propertyColumns.slice(0, 2)) {
+      const col = columns[name];
+      if (!col) continue;
+      const delta = formatPropertyDelta(name, col.values[anchorIdx], col.values[rowIdx]);
+      html += '<span class="neighbor-delta"><strong>' + escapeHtml(getColumnDisplayName(name)) + '</strong> ' +
+        escapeHtml(delta || '-') + '</span>';
+    }
+    html += '</span>';
+  }
+  html += '</span></button>';
+  if (options.compare) {
+    html += '<button type="button" class="neighbor-compare' + (comparisonIndex === rowIdx ? ' active' : '') +
+      '" data-neighbor-compare="' + rowIdx + '" aria-pressed="' + String(comparisonIndex === rowIdx) +
+      '" aria-label="Compare with ' + escapeHtml(truncatePlainText(getLabel(rowIdx), 45)) + '">Compare</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// The other endpoint a path starts out pointing at: the most recently pinned
+// point that is not the one being inspected.
+function defaultPathTarget(idx) {
+  for (let i = pinnedCards.length - 1; i >= 0; i--) {
+    if (pinnedCards[i] !== idx) return pinnedCards[i];
+  }
+  return -1;
+}
+
+function renderTreeModes(idx) {
+  const canPath = pinnedCards.length > 1;
+  const modes = [
+    { mode: 'neighbors', label: 'Neighbors', enabled: true, hint: 'Dim everything except the connected neighbors' },
+    { mode: 'path', label: 'Path', enabled: canPath, hint: canPath ? 'Trace the tree path to another pinned point' : 'Pin a second point to trace a path' },
+  ];
+  let html = '<div class="tree-modes" role="group" aria-label="Tree focus mode">';
+  for (const item of modes) {
+    const active = treeFocusMode === item.mode;
+    html += '<button type="button" class="tree-chip' + (active ? ' active' : '') +
+      '" data-tree-mode="' + item.mode + '" aria-pressed="' + String(active) + '"' +
+      (item.enabled ? '' : ' disabled') + ' title="' + escapeHtml(item.hint) + '">' + item.label + '</button>';
+  }
+  return html + '</div>';
+}
+
+// The Neighbors and Path chips render into this one section: the chip picks
+// what the list below contains, so nothing new is added to the inspector when a
+// mode is switched.
+function renderTreeExplorer(idx, cardConfig) {
+  if (!hasEdges) return '';
+  let html = '<section class="neighborhood-section" aria-labelledby="neighborhood-title">';
+  html += '<div class="neighborhood-head"><span class="neighborhood-title" id="neighborhood-title">Tree</span>';
+  html += renderTreeModes(idx) + '</div>';
+
+  if (!edgesLoaded || !adjacencyOffsets) {
+    html += '<div class="neighborhood-empty">Loading connected neighbors…</div></section>';
+    return html;
+  }
+
+  const neighbors = connectedNeighbors(idx);
+  if (neighbors.length === 0) {
+    html += '<div class="neighborhood-empty">No connected neighbors for this point.</div></section>';
+    return html;
+  }
+
+  const propertyColumns = comparisonColumnNames(cardConfig);
+  if (treeFocusMode === 'path') {
+    html += renderPathBody(idx, propertyColumns);
+  } else {
+    html += renderNeighborBody(idx, neighbors, propertyColumns);
+  }
+
+  const distanceActive = treeDistanceAnchor === idx;
+  html += '<button type="button" class="tree-distance-btn' + (distanceActive ? ' active' : '') +
+    '" aria-pressed="' + String(distanceActive) + '">' +
+    (distanceActive ? '✓ Map coloured by distance from here' : 'Colour map by distance from here') + '</button>';
+  html += '</section>';
+  return html;
+}
+
+function renderNeighborBody(idx, neighbors, propertyColumns) {
+  const strongest = Math.round(neighbors[0].similarity * 100);
+  let html = '<div class="neighborhood-summary">' + neighbors.length.toLocaleString() +
+    (neighbors.length === 1 ? ' connected neighbor' : ' connected neighbors') +
+    ' · strongest ' + strongest + '% similarity' + (edgeWeights ? '' : ' (map estimate)') + '</div>';
+  html += renderComparisonView(idx, comparisonIndex, propertyColumns);
+  html += '<div class="neighbor-list" role="list">';
+
+  const expanded = expandedNeighborhoods.has(idx);
+  const visible = expanded ? neighbors : neighbors.slice(0, MAX_VISIBLE_NEIGHBORS);
+  for (const neighbor of visible) {
+    html += renderTreeRow(idx, neighbor.idx, propertyColumns, {
+      badge: Math.round(neighbor.similarity * 100) + '%',
+      compare: true,
+    });
+  }
+  html += '</div>';
+  if (neighbors.length > MAX_VISIBLE_NEIGHBORS) {
+    html += '<button type="button" class="neighborhood-more">' +
+      (expanded ? 'Show closest ' + MAX_VISIBLE_NEIGHBORS : 'Show all ' + neighbors.length.toLocaleString()) + '</button>';
+  }
+  return html;
+}
+
+function renderPathBody(idx, propertyColumns) {
+  // setTreeFocus owns the endpoint; this only reports what it chose.
+  if (pathTargetIndex < 0) {
+    return '<div class="neighborhood-empty">Pin a second point to trace a path.</div>';
+  }
+
+  let html = '<div class="tree-endpoint"><label for="tree-path-target">Path to</label>' +
+    '<select id="tree-path-target">';
+  for (const candidate of pinnedCards) {
+    if (candidate === idx) continue;
+    html += '<option value="' + candidate + '"' + (candidate === pathTargetIndex ? ' selected' : '') + '>' +
+      escapeHtml(truncatePlainText(getLabel(candidate), 30)) + '</option>';
+  }
+  html += '</select></div>';
+
+  const path = treePath(idx, pathTargetIndex);
+  if (path.length === 0) {
+    return html + '<div class="neighborhood-empty">No tree path: these points sit in different components of the map.</div>';
+  }
+
+  const steps = path.length - 1;
+  const length = treePathLength(path);
+  html += '<div class="neighborhood-summary">' + steps.toLocaleString() +
+    (steps === 1 ? ' step' : ' steps') + ' · length ' + formatValueText(length) +
+    (edgeWeights ? '' : ' (map estimate)') + '</div>';
+  html += '<div class="neighbor-list" role="list">';
+  const expanded = expandedNeighborhoods.has(idx);
+  const shown = expanded ? path.length : Math.min(path.length, MAX_VISIBLE_PATH_NODES);
+  for (let i = 0; i < shown; i++) {
+    html += renderTreeRow(idx, path[i], propertyColumns, {
+      step: i,
+      badge: i === 0 ? 'start' : formatValueText(bfsDistance[path[i]]),
+      hoverFrom: i === 0 ? path[0] : path[i - 1],
+    });
+  }
+  html += '</div>';
+  if (path.length > MAX_VISIBLE_PATH_NODES) {
+    html += '<button type="button" class="neighborhood-more">' +
+      (expanded
+        ? 'Show first ' + MAX_VISIBLE_PATH_NODES + ' steps'
+        : 'Show all ' + path.length.toLocaleString() + ' steps') + '</button>';
+  }
+  return html;
+}
+
+// Apply one of the tree focus modes to the map: which points stay lit, which
+// edges are drawn on top, and how far the rest is dimmed. All three modes share
+// this single path so they can never disagree about the map state.
+function setTreeFocus(mode, idx) {
+  treeFocusMode = (idx >= 0 && edgesLoaded && adjacencyOffsets) ? mode : 'off';
+  let selected = idx >= 0 ? [idx] : [];
+  let positions = null;
+  // 'path' only dims the map once an endpoint is resolved. Until then the chip
+  // is lit but the map is untouched.
+  let focused = false;
+
+  if (treeFocusMode === 'neighbors') {
+    selected = [idx, ...connectedNeighbors(idx).map(item => item.idx)];
+    positions = edgePositionsForNeighborhood(idx);
+    focused = true;
+  } else if (treeFocusMode === 'path') {
+    // Resolve the endpoint here rather than while rendering, so the map and the
+    // list always describe the same path.
+    if (pathTargetIndex < 0 || pathTargetIndex === idx) pathTargetIndex = defaultPathTarget(idx);
+    if (pathTargetIndex >= 0) {
+      selected = treePath(idx, pathTargetIndex);
+      positions = edgePositionsForPath(selected);
+      focused = selected.length > 0;
+    }
+  }
+
+  focusedNeighborhoodIndex = focused ? idx : -1;
+  focusedNeighborhoodPositions = positions;
+  scatterplot.set({ opacityInactiveScale: focused ? 0.08 : 0.5 });
+  scatterplot.select(selected);
+  edgeNeedsRedraw = true;
+  renderEdges();
+}
+
+// Colouring by tree distance is a colour layout, not a focus mode, so it is
+// registered as a synthetic column and handed to the existing Color by
+// selector. The legend, colormap and dropdown then need no special casing.
+const TREE_DISTANCE_COLUMN = '__tree_distance__';
+const TREE_DISTANCE_COLORMAP = [
+  '#440154', '#472d7b', '#3b528b', '#2c728e', '#21918c',
+  '#28ae80', '#5ec962', '#addc30', '#fde725',
+];
+let treeDistanceValues = null;
+
+function applyTreeDistanceColor(anchor) {
+  const reached = treeBfs(anchor);
+  if (!reached) return;
+  if (!treeDistanceValues) treeDistanceValues = new Float32Array(n);
+  // Points the walk never reached sit in another component. NaN sends them
+  // down the existing missing-value path: black points and a NaN legend entry.
+  treeDistanceValues.fill(NaN);
+  for (let i = 0; i < reached; i++) {
+    const node = bfsOrder[i];
+    treeDistanceValues[node] = bfsDistance[node];
+  }
+  treeDistanceAnchor = anchor;
+
+  const displayName = 'Distance from ' + truncatePlainText(getLabel(anchor), 24);
+  colormaps[TREE_DISTANCE_COLUMN] = TREE_DISTANCE_COLORMAP;
+  columnMeta[TREE_DISTANCE_COLUMN] = {
+    dtype: 'float32',
+    role: 'layout',
+    colormap: TREE_DISTANCE_COLUMN,
+    ui: { displayName },
+  };
+  columns[TREE_DISTANCE_COLUMN] = {
+    values: treeDistanceValues,
+    dtype: 'continuous',
+    role: 'layout',
+    colormap: TREE_DISTANCE_COLUMN,
+  };
+
+  let option = colorSelect.querySelector('option[value="' + TREE_DISTANCE_COLUMN + '"]');
+  if (!option) {
+    option = document.createElement('option');
+    option.value = TREE_DISTANCE_COLUMN;
+    colorSelect.appendChild(option);
+  }
+  option.textContent = displayName;
+  colorSelect.value = TREE_DISTANCE_COLUMN;
+  applyColor(TREE_DISTANCE_COLUMN);
+}
+
+function retireTreeDistanceColumn() {
+  treeDistanceAnchor = -1;
+  colorSelect.querySelector('option[value="' + TREE_DISTANCE_COLUMN + '"]')?.remove();
+  delete columns[TREE_DISTANCE_COLUMN];
+  delete columnMeta[TREE_DISTANCE_COLUMN];
+}
+
+function clearTreeDistanceColor() {
+  retireTreeDistanceColumn();
+  const fallback = colorSelect.options.length ? colorSelect.options[0].value : '';
+  colorSelect.value = fallback;
+  applyColor(fallback);
+}
+
+function hoverNeighbor(sourceIdx, neighborIdx) {
+  highlightedNeighborEdge = neighborIdx >= 0 ? [sourceIdx, neighborIdx] : null;
+  hoveredNeighborPositions = neighborIdx >= 0
+    ? edgePositionsForNeighborhood(sourceIdx, neighborIdx)
+    : null;
+  suppressProgrammaticTooltip = true;
+  scatterplot.hover(neighborIdx >= 0 ? neighborIdx : -1);
+  suppressProgrammaticTooltip = false;
+  edgeNeedsRedraw = true;
+  renderEdges();
+}
+
+function rerenderCardPreservingScroll(selector = '') {
+  const body = cardStack.querySelector('.card-body');
+  const scrollTop = body ? body.scrollTop : 0;
+  renderCardStack();
+  requestAnimationFrame(() => {
+    const nextBody = cardStack.querySelector('.card-body');
+    if (nextBody) nextBody.scrollTop = scrollTop;
+    const target = selector ? cardStack.querySelector(selector) : null;
+    if (nextBody && target) {
+      const bodyRect = nextBody.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      if (targetRect.top < bodyRect.top || targetRect.bottom > bodyRect.bottom) {
+        nextBody.scrollTop += targetRect.top - bodyRect.top - 10;
+      }
+    }
+  });
+}
+
 let hoveredPointIndex = -1;
-let cardMinimized = false;
 scatterplot.subscribe('pointover', (idx) => { hoveredPointIndex = idx; });
 scatterplot.subscribe('pointout', () => { hoveredPointIndex = -1; });
 
@@ -1653,35 +2997,58 @@ canvas.addEventListener('mouseup', (e) => {
   if (e.shiftKey || e.ctrlKey || e.metaKey) return;
   if (hoveredPointIndex < 0) return;
 
-  const idx = hoveredPointIndex;
-  const existingIndex = pinnedCards.indexOf(idx);
+  openPointInspector(hoveredPointIndex);
+});
 
+function openPointInspector(idx, { replace = false } = {}) {
+  if (!Number.isInteger(idx) || idx < 0 || idx >= n) return;
+  const previousIdx = pinnedCards[currentCardIndex];
+  if (previousIdx !== idx) comparisonIndex = -1;
+  if (replace) pinnedCards.length = 0;
+  const existingIndex = pinnedCards.indexOf(idx);
   if (existingIndex >= 0) {
     currentCardIndex = existingIndex;
   } else {
-    if (pinnedCards.length >= MAX_CARDS) {
-      pinnedCards.shift();
-    }
+    if (pinnedCards.length >= MAX_CARDS) pinnedCards.shift();
     pinnedCards.push(idx);
     currentCardIndex = pinnedCards.length - 1;
   }
+  if (window.innerWidth <= 640 && panels?.explore?.classList.contains('open')) {
+    togglePanel('explore');
+  }
   renderCardStack();
-});
+  if (hasEdges && !edgesLoaded) {
+    loadEdges().then(() => {
+      if (pinnedCards[currentCardIndex] !== idx) return;
+      rerenderCardPreservingScroll();
+      setTreeFocus(treeFocusMode, idx);
+    }).catch(err => console.error('Failed to load neighborhood edges:', err));
+  } else {
+    setTreeFocus(treeFocusMode, idx);
+  }
+}
 
 function truncateString(str, maxLen) {
-  str = escapeHtml(str);
-  if (!str || str.length <= maxLen) return str;
-  return str.substring(0, maxLen - 3) + '...';
+  return escapeHtml(truncatePlainText(str, maxLen));
 }
 
 function renderCardStack() {
   if (pinnedCards.length === 0) {
+    comparisonIndex = -1;
+    pathTargetIndex = -1;
+    hoverNeighbor(-1, -1);
+    setTreeFocus('off', -1);
     cardStack.classList.add('hidden');
+    cardStack.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('inspector-open');
+    updateWorkspaceLayout();
     cardStack.innerHTML = '';
     return;
   }
 
   cardStack.classList.remove('hidden');
+  cardStack.setAttribute('aria-hidden', 'false');
+  document.documentElement.classList.add('inspector-open');
   const idx = pinnedCards[currentCardIndex];
   const cardConfig = metadata.card || null;
 
@@ -1705,18 +3072,20 @@ function renderCardStack() {
   const smilesCol = smilesColName ? columns[smilesColName] : null;
   const smilesValue = smilesCol ? smilesCol.values[idx] : null;
 
-  let html = '<div class="card' + (cardMinimized ? ' minimized' : '') + '">';
+  let html = '<div class="card">';
 
   // Header with navigation
   html += '<div class="card-header">';
   html += '<div class="card-nav">';
-  html += '<button id="card-prev" ' + (currentCardIndex <= 0 ? 'disabled' : '') + '>&larr;</button>';
-  html += '<span>' + (currentCardIndex + 1) + ' of ' + pinnedCards.length + '</span>';
-  html += '<button id="card-next" ' + (currentCardIndex >= pinnedCards.length - 1 ? 'disabled' : '') + '>&rarr;</button>';
+  html += '<span class="card-nav-label">Inspector</span>';
+  if (pinnedCards.length > 1) {
+    html += '<button type="button" id="card-prev" aria-label="Previous pinned point" ' + (currentCardIndex <= 0 ? 'disabled' : '') + '>&larr;</button>';
+    html += '<span>' + (currentCardIndex + 1) + ' / ' + pinnedCards.length + '</span>';
+    html += '<button type="button" id="card-next" aria-label="Next pinned point" ' + (currentCardIndex >= pinnedCards.length - 1 ? 'disabled' : '') + '>&rarr;</button>';
+  }
   html += '</div>';
   html += '<div>';
-  html += '<button class="card-minimize" id="card-minimize" title="' + (cardMinimized ? 'Expand' : 'Minimize') + '">' + (cardMinimized ? '&#9650;' : '&#9660;') + '</button>';
-  html += '<button class="card-close" id="card-close" title="Close">&times;</button>';
+  html += '<button type="button" class="card-close" id="card-close" title="Close" aria-label="Close point details">&times;</button>';
   html += '</div>';
   html += '</div>';
 
@@ -1734,33 +3103,44 @@ function renderCardStack() {
 
   // Links (from card config) — placed prominently before structure/fields
   if (cardConfig && cardConfig.links && cardConfig.links.length > 0) {
+    html += '<div class="card-section-label">Links</div>';
     html += '<div class="card-links">';
     for (const link of cardConfig.links) {
-      let url = link.url;
-      url = url.replace(/\{([^}]+)\}/g, (match, colName) => {
+      let url = String(link.url).replace(/\{([^}]+)\}/g, (match, colName) => {
         const c = columns[colName];
-        return c ? encodeURI(String(c.values[idx])) : match;
+        return c ? encodeURIComponent(String(c.values[idx])) : match;
       });
-      html += '<a class="card-link" href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(link.label) + '</a>';
+      try {
+        const parsedUrl = new URL(url, window.location.href);
+        if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+          html += '<a class="card-link" href="' + escapeHtml(parsedUrl.href) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(link.label) + '</a>';
+        }
+      } catch (_) { /* Skip malformed card links. */ }
     }
     html += '</div>';
   }
 
   // Structure container placeholder (only if SMILES or protein data exists)
   if (metadata.smilesColumn || metadata.proteinColumn || metadata.structures3dColumn) {
+    html += '<div class="card-section-label">Structure</div>';
     html += '<div class="card-structure-container hidden" id="card-structure"></div>';
   }
   // Image container placeholder (only if images data exists)
   if (metadata.imagesColumn) {
+    html += '<div class="card-section-label">Preview</div>';
     html += '<div class="card-image-container hidden" id="card-image"></div>';
   }
+
+  html += renderTreeExplorer(idx, cardConfig);
+
+  html += '<div class="card-section-label">Properties</div>';
 
   // SMILES row with copy button
   if (smilesValue && typeof smilesValue === 'string') {
     html += '<div class="card-copy-row">';
-    html += '<span class="key">SMILES</span>';
-    html += '<span class="value">' + truncateString(smilesValue, 25) + '</span>';
-    html += '<button class="card-copy-btn" id="copy-smiles" data-value="' + smilesValue.replace(/"/g, '&quot;') + '">Copy</button>';
+    html += '<span class="key">' + escapeHtml(getColumnDisplayName(smilesColName)) + '</span>';
+    html += '<span class="value">' + renderColumnValue(smilesColName, smilesValue, idx, 25) + '</span>';
+    html += '<button type="button" class="card-copy-btn" id="copy-smiles" aria-label="Copy ' + escapeHtml(getColumnDisplayName(smilesColName)) + '" data-value="' + escapeHtml(smilesValue) + '">Copy</button>';
     html += '</div>';
   }
 
@@ -1776,9 +3156,9 @@ function renderCardStack() {
     const col = columns[name];
     if (!col) continue;
     const val = col.values[idx];
-    const colUi = (columnMeta[name] && columnMeta[name].ui) || {};
-    const displayName = colUi.displayName || name;
-    const displayVal = truncateString(formatValue(val), 30);
+    const colUi = getColumnUi(name);
+    const displayName = getColumnDisplayName(name);
+    const displayVal = renderColumnValue(name, val, idx);
     const colRole = (columnMeta[name] && columnMeta[name].role) || '';
     const isLayoutCol = colRole.indexOf('layout') !== -1;
     const isCopyable = colUi.copyable === true || (!isLayoutCol && typeof val === 'string' && val.length > 0 && colUi.copyable !== false);
@@ -1787,7 +3167,7 @@ function renderCardStack() {
       html += '<div class="card-copy-row">';
       html += '<span class="key">' + escapeHtml(displayName) + '</span>';
       html += '<span class="value">' + displayVal + '</span>';
-      html += '<button class="card-copy-btn" data-value="' + String(val).replace(/"/g, '&quot;') + '">Copy</button>';
+      html += '<button type="button" class="card-copy-btn" aria-label="Copy ' + escapeHtml(displayName) + '" data-value="' + escapeHtml(String(val)) + '">Copy</button>';
       html += '</div>';
     } else {
       html += '<div class="card-row">';
@@ -1799,27 +3179,95 @@ function renderCardStack() {
 
   html += '</div>'; // close card-body
   html += '</div>'; // close card
-  html += '<div class="card-resize-handle" id="card-resize-handle" title="Resize panel"></div>';
+  html += '<div class="card-resize-handle" id="card-resize-handle" title="Resize panel" aria-hidden="true"></div>';
   cardStack.innerHTML = html;
   applyCardSize();
 
   // Attach event listeners
   document.getElementById('card-prev')?.addEventListener('click', () => {
-    if (currentCardIndex > 0) { currentCardIndex--; renderCardStack(); }
+    if (currentCardIndex > 0) {
+      currentCardIndex--;
+      comparisonIndex = -1;
+      renderCardStack();
+      setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
+    }
   });
   document.getElementById('card-next')?.addEventListener('click', () => {
-    if (currentCardIndex < pinnedCards.length - 1) { currentCardIndex++; renderCardStack(); }
-  });
-  document.getElementById('card-minimize')?.addEventListener('click', () => {
-    cardMinimized = !cardMinimized;
-    renderCardStack();
+    if (currentCardIndex < pinnedCards.length - 1) {
+      currentCardIndex++;
+      comparisonIndex = -1;
+      renderCardStack();
+      setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
+    }
   });
   document.getElementById('card-close')?.addEventListener('click', () => {
     pinnedCards.splice(currentCardIndex, 1);
     if (currentCardIndex >= pinnedCards.length) currentCardIndex = Math.max(0, pinnedCards.length - 1);
+    comparisonIndex = -1;
     renderCardStack();
+    if (pinnedCards.length) setTreeFocus(treeFocusMode, pinnedCards[currentCardIndex]);
   });
   document.getElementById('card-resize-handle')?.addEventListener('pointerdown', startCardResize);
+
+  cardStack.querySelectorAll('[data-tree-mode]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const mode = chip.dataset.treeMode;
+      // Clicking the lit chip turns the mode off again.
+      const next = treeFocusMode === mode ? 'off' : mode;
+      setTreeFocus(next, idx);
+      rerenderCardPreservingScroll();
+    });
+  });
+  cardStack.querySelectorAll('.neighbor-row').forEach(row => {
+    const neighborIdx = Number(row.dataset.neighbor);
+    // Path rows are not adjacent to the anchor, so they name the edge to
+    // light up themselves.
+    const hoverFrom = row.dataset.hoverFrom === undefined ? idx : Number(row.dataset.hoverFrom);
+    row.addEventListener('mouseenter', () => hoverNeighbor(hoverFrom, neighborIdx));
+    row.addEventListener('mouseleave', () => hoverNeighbor(hoverFrom, -1));
+    row.addEventListener('focusin', () => hoverNeighbor(hoverFrom, neighborIdx));
+    row.addEventListener('focusout', (event) => {
+      if (!row.contains(event.relatedTarget)) hoverNeighbor(hoverFrom, -1);
+    });
+  });
+  cardStack.querySelector('#tree-path-target')?.addEventListener('change', (event) => {
+    pathTargetIndex = Number(event.target.value);
+    setTreeFocus('path', idx);
+    rerenderCardPreservingScroll('.neighbor-list');
+  });
+  cardStack.querySelector('.tree-distance-btn')?.addEventListener('click', () => {
+    if (treeDistanceAnchor === idx) clearTreeDistanceColor();
+    else applyTreeDistanceColor(idx);
+    rerenderCardPreservingScroll('.tree-distance-btn');
+  });
+  cardStack.querySelectorAll('[data-neighbor-navigate]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const neighborIdx = Number(btn.dataset.neighborNavigate);
+      hoverNeighbor(idx, -1);
+      openPointInspector(neighborIdx);
+      scatterplot.zoomToLocation(
+        [x[neighborIdx], y[neighborIdx]],
+        0.08,
+        typeof cameraTransition === 'undefined' ? {} : cameraTransition,
+      ).catch(() => {});
+    });
+  });
+  cardStack.querySelectorAll('[data-neighbor-compare]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const neighborIdx = Number(btn.dataset.neighborCompare);
+      comparisonIndex = comparisonIndex === neighborIdx ? -1 : neighborIdx;
+      rerenderCardPreservingScroll(comparisonIndex >= 0 ? '.comparison-view' : '');
+    });
+  });
+  cardStack.querySelector('.neighborhood-more')?.addEventListener('click', () => {
+    if (expandedNeighborhoods.has(idx)) expandedNeighborhoods.delete(idx);
+    else expandedNeighborhoods.add(idx);
+    rerenderCardPreservingScroll('.neighbor-list');
+  });
+  cardStack.querySelector('.comparison-close')?.addEventListener('click', () => {
+    comparisonIndex = -1;
+    rerenderCardPreservingScroll('.neighbor-list');
+  });
 
   // Copy buttons
   cardStack.querySelectorAll('.card-copy-btn').forEach((btn) => {
@@ -1862,7 +3310,7 @@ async function buildExportColumns() {
   for (const name of labelOptions) {
     const col = await fetchColumn(name);
     if (!col) continue;
-    html += '<label><input type="checkbox" value="' + escapeHtml(name) + '" checked> ' + escapeHtml(name) + '</label>';
+    html += '<label><input type="checkbox" value="' + escapeHtml(name) + '" checked> ' + escapeHtml(getColumnDisplayName(name)) + '</label>';
   }
   exportColumns.innerHTML = html;
 }
@@ -1872,15 +3320,26 @@ function showExportPanel(indices) {
   selectedIndices = indices;
   exportTitle.textContent = indices.length.toLocaleString() + ' points selected';
   exportPanel.classList.remove('hidden');
+  exportPanel.setAttribute('aria-hidden', 'false');
+  updateWorkspaceLayout();
 }
 
 function hideExportPanel() {
   selectedIndices = [];
   exportPanel.classList.add('hidden');
+  exportPanel.setAttribute('aria-hidden', 'true');
+  updateWorkspaceLayout();
 }
 
 scatterplot.subscribe('select', (selection) => {
   const indices = selection.points || selection;
+  // A traced path is a result worth exporting, so that mode falls through to
+  // the export panel. Neighbour focus does not: it selects a handful of points
+  // on every click and would flap the panel open.
+  if (treeFocusMode === 'neighbors') {
+    hideExportPanel();
+    return;
+  }
   if (Array.isArray(indices) && indices.length > 1) {
     showExportPanel(indices);
   } else {
@@ -1968,8 +3427,17 @@ const searchBtn = document.getElementById('search-btn');
 const clearSearchBtn = document.getElementById('clear-search');
 const partialMatchCheckbox = document.getElementById('partial-match');
 const searchResults = document.getElementById('search-results');
+const searchResultList = document.getElementById('search-result-list');
+const searchNav = document.getElementById('search-nav');
+const searchPrev = document.getElementById('search-prev');
+const searchNext = document.getElementById('search-next');
+const searchPosition = document.getElementById('search-position');
 
 let searchMatches = [];
+let activeSearchPosition = -1;
+let searchRequestId = 0;
+let searchDebounceTimer = null;
+const MAX_VISIBLE_SEARCH_RESULTS = 75;
 
 // Populate search column dropdown with string columns
 async function buildSearchColumnOptions() {
@@ -1983,7 +3451,7 @@ async function buildSearchColumnOptions() {
       if (!col) continue;
       const opt = document.createElement('option');
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = getColumnDisplayName(name);
       searchColumn.appendChild(opt);
     }
   } else {
@@ -1996,7 +3464,7 @@ async function buildSearchColumnOptions() {
 
       const opt = document.createElement('option');
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = getColumnDisplayName(name);
       searchColumn.appendChild(opt);
     }
     // Add SMILES column if present and not already in labelOptions
@@ -2006,7 +3474,7 @@ async function buildSearchColumnOptions() {
       if (col && typeof col.values[0] === 'string') {
         const opt = document.createElement('option');
         opt.value = smilesCol;
-        opt.textContent = smilesCol + ' (SMILES)';
+        opt.textContent = getColumnDisplayName(smilesCol) + ' (SMILES)';
         searchColumn.appendChild(opt);
       }
     }
@@ -2014,30 +3482,108 @@ async function buildSearchColumnOptions() {
 }
 buildSearchColumnOptions();
 
-async function performSearch() {
+function getSearchResultMeta(idx, searchColumnName) {
+  const parts = [];
+  for (const name of layoutOptions) {
+    if (name === searchColumnName) continue;
+    const col = columns[name];
+    if (!col || col.values[idx] === undefined) continue;
+    const value = formatValueText(col.values[idx], name);
+    if (value === '') continue;
+    parts.push(getColumnDisplayName(name) + ': ' + truncatePlainText(value, 18));
+    if (parts.length === 2) break;
+  }
+  return parts.length ? parts.join(' \u00b7 ') : 'Point ' + (idx + 1).toLocaleString();
+}
+
+function updateSearchNavigation() {
+  const hasMatches = searchMatches.length > 0;
+  searchNav.classList.toggle('hidden', !hasMatches);
+  searchPosition.textContent = activeSearchPosition >= 0
+    ? (activeSearchPosition + 1).toLocaleString() + ' / ' + searchMatches.length.toLocaleString()
+    : searchMatches.length.toLocaleString();
+  searchPrev.disabled = activeSearchPosition <= 0;
+  searchNext.disabled = !hasMatches || activeSearchPosition >= searchMatches.length - 1;
+}
+
+function renderSearchResultList() {
+  if (searchMatches.length === 0) {
+    searchResultList.innerHTML = '';
+    updateSearchNavigation();
+    return;
+  }
+  const colName = searchColumn.value;
+  const col = columns[colName];
+  const visibleMatches = searchMatches.slice(0, MAX_VISIBLE_SEARCH_RESULTS);
+  let html = '';
+  visibleMatches.forEach((idx, position) => {
+    const value = col ? col.values[idx] : getLabel(idx);
+    html += '<button type="button" class="search-result' + (position === activeSearchPosition ? ' active' : '') + '" data-position="' + position + '" aria-current="' + (position === activeSearchPosition ? 'true' : 'false') + '">';
+    html += '<div class="search-result-title">' + escapeHtml(truncatePlainText(formatValueText(value, colName), 58)) + '</div>';
+    html += '<div class="search-result-meta">' + escapeHtml(getSearchResultMeta(idx, colName)) + '</div>';
+    html += '</button>';
+  });
+  if (searchMatches.length > MAX_VISIBLE_SEARCH_RESULTS) {
+    html += '<div class="search-result-empty">Showing the first ' + MAX_VISIBLE_SEARCH_RESULTS + ' results. Refine the query to narrow the list.</div>';
+  }
+  searchResultList.innerHTML = html;
+  updateSearchNavigation();
+}
+
+function activateSearchMatch(position) {
+  if (searchMatches.length === 0) return;
+  const nextPosition = Math.max(0, Math.min(searchMatches.length - 1, position));
+  activeSearchPosition = nextPosition;
+  const idx = searchMatches[nextPosition];
+  scatterplot.select([idx]);
+  scatterplot.zoomToLocation(
+    [x[idx], y[idx]],
+    0.08,
+    typeof cameraTransition === 'undefined' ? {} : cameraTransition,
+  ).catch(() => {});
+  openPointInspector(idx, { replace: true });
+  renderSearchResultList();
+  searchResultList.querySelector('[data-position="' + nextPosition + '"]')?.scrollIntoView({ block: 'nearest' });
+  if (window.innerWidth <= 640 && panels.search?.classList.contains('open')) {
+    togglePanel('search');
+  }
+}
+
+function resetSearchResults(message = '') {
+  searchMatches = [];
+  activeSearchPosition = -1;
+  searchResults.textContent = message;
+  searchResultList.innerHTML = '';
+  updateSearchNavigation();
+  scatterplot.select([]);
+}
+
+async function performSearch({ activateFirst = false } = {}) {
+  const requestId = ++searchRequestId;
   const colName = searchColumn.value;
   const query = searchInput.value.trim();
   const partial = partialMatchCheckbox.checked;
 
   if (!query || !colName) {
-    searchResults.textContent = '';
-    scatterplot.select([]);
-    return;
+    resetSearchResults(query ? 'Choose a search column' : 'Type at least 2 characters');
+    return [];
   }
 
+  searchResults.textContent = 'Searching\u2026';
   const col = await fetchColumn(colName);
+  if (requestId !== searchRequestId) return [];
   if (!col) {
-    searchResults.textContent = 'Column not found';
-    return;
+    resetSearchResults('Column not found');
+    return [];
   }
 
   const matches = [];
   const queryLower = query.toLowerCase();
-
-  for (let i = 0; i < col.values.length; i++) {
-    const val = String(col.values[i] ?? '');
-    const valLower = val.toLowerCase();
-
+  if (!col._searchText) {
+    col._searchText = Array.from(col.values, value => String(value ?? '').toLowerCase());
+  }
+  for (let i = 0; i < col._searchText.length; i++) {
+    const valLower = col._searchText[i];
     if (partial) {
       if (valLower.includes(queryLower)) matches.push(i);
     } else {
@@ -2046,27 +3592,62 @@ async function performSearch() {
   }
 
   searchMatches = matches;
+  activeSearchPosition = -1;
 
   if (matches.length === 0) {
-    searchResults.textContent = 'No matches found';
+    searchResults.textContent = 'No results';
     scatterplot.select([]);
   } else {
-    searchResults.textContent = matches.length.toLocaleString() + ' match(es) found';
-    scatterplot.select(matches);
+    searchResults.textContent = matches.length.toLocaleString() + (matches.length === 1 ? ' result' : ' results');
+    scatterplot.select(matches.length <= 5000 ? matches : []);
   }
+  renderSearchResultList();
+  if (activateFirst && matches.length > 0) activateSearchMatch(0);
+  return matches;
 }
 
 function clearSearch() {
+  searchRequestId++;
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchInput.value = '';
-  searchResults.textContent = '';
-  searchMatches = [];
-  scatterplot.select([]);
+  resetSearchResults('Type at least 2 characters');
 }
 
-searchBtn.addEventListener('click', performSearch);
+searchBtn.addEventListener('click', () => performSearch({ activateFirst: true }));
 searchInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') performSearch();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    performSearch({ activateFirst: true });
+  } else if (e.key === 'ArrowDown' && searchMatches.length > 0) {
+    e.preventDefault();
+    activateSearchMatch(activeSearchPosition < 0 ? 0 : activeSearchPosition + 1);
+  } else if (e.key === 'ArrowUp' && searchMatches.length > 0) {
+    e.preventDefault();
+    activateSearchMatch(activeSearchPosition < 0 ? 0 : activeSearchPosition - 1);
+  }
 });
+searchInput.addEventListener('input', () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  const query = searchInput.value.trim();
+  if (query.length < 2) {
+    resetSearchResults(query ? 'Type one more character' : 'Type at least 2 characters');
+    return;
+  }
+  searchDebounceTimer = setTimeout(() => performSearch(), 220);
+});
+searchColumn.addEventListener('change', () => {
+  if (searchInput.value.trim()) performSearch();
+});
+partialMatchCheckbox.addEventListener('change', () => {
+  if (searchInput.value.trim()) performSearch();
+});
+searchResultList.addEventListener('click', (e) => {
+  const result = e.target.closest('.search-result');
+  if (!result) return;
+  activateSearchMatch(Number(result.dataset.position));
+});
+searchPrev.addEventListener('click', () => activateSearchMatch(activeSearchPosition - 1));
+searchNext.addEventListener('click', () => activateSearchMatch(activeSearchPosition < 0 ? 0 : activeSearchPosition + 1));
 clearSearchBtn.addEventListener('click', clearSearch);
 
 // ============================================
@@ -2104,20 +3685,27 @@ async function buildFilterSidebar() {
   for (const name of filterColumnNames) {
     const col = await fetchColumn(name);
     if (!col) continue;
-    const colUi = (columnMeta[name] && columnMeta[name].ui) || {};
-    const displayName = colUi.displayName || name;
+    const displayName = getColumnDisplayName(name);
 
     const section = document.createElement('div');
     section.className = 'fs-section';
 
-    const head = document.createElement('div');
+    const head = document.createElement('button');
+    head.type = 'button';
     head.className = 'fs-section-head';
+    const bodyId = 'fs-section-' + String(name).replace(/[^a-zA-Z0-9_-]/g, '-') + '-body';
+    head.setAttribute('aria-expanded', 'true');
+    head.setAttribute('aria-controls', bodyId);
     head.innerHTML = '<span>' + escapeHtml(displayName) + '</span><span class="fs-chevron">&#9660;</span>';
-    head.addEventListener('click', () => section.classList.toggle('collapsed'));
+    head.addEventListener('click', () => {
+      const collapsed = section.classList.toggle('collapsed');
+      head.setAttribute('aria-expanded', String(!collapsed));
+    });
     section.appendChild(head);
 
     const body = document.createElement('div');
     body.className = 'fs-section-body';
+    body.id = bodyId;
 
     if (col.dtype === 'categorical' || typeof col.values[0] === 'string') {
       buildCatSection(name, col, body);
@@ -2146,10 +3734,13 @@ function buildCatSection(colName, col, container) {
   const otherCount = otherEntries.reduce((s, [,c]) => s + c, 0);
 
   function makeRow(value, count, isOther) {
-    const row = document.createElement('div');
+    const row = document.createElement('button');
+    row.type = 'button';
     row.className = 'fs-bar-row';
     row.dataset.col = colName;
     row.dataset.value = isOther ? '__other__' : value;
+    row.setAttribute('aria-pressed', 'false');
+    row.setAttribute('aria-label', 'Filter ' + getColumnDisplayName(colName) + ' by ' + (isOther ? 'other values' : value));
     const pct = (count / maxCount * 100).toFixed(1);
     row.innerHTML =
       '<span class="fs-bar-label" title="' + (isOther ? 'other' : escapeHtml(value)) + '">' +
@@ -2228,18 +3819,70 @@ function buildNumSection(colName, col, container) {
 
   const axis = document.createElement('div');
   axis.className = 'fs-hist-axis';
-  axis.innerHTML = '<span>' + formatValue(dataMin) + '</span><span>' + formatValue(dataMax) + '</span>';
+  axis.innerHTML = '<span>' + formatValue(dataMin, colName) + '</span><span>' + formatValue(dataMax, colName) + '</span>';
   container.appendChild(axis);
 
   const rangeDisplay = document.createElement('div');
   rangeDisplay.className = 'fs-hist-range';
+  rangeDisplay.setAttribute('aria-live', 'polite');
   container.appendChild(rangeDisplay);
 
-  filterState[colName] = { type: 'num', min: null, max: null, dataMin, dataMax, numBins, binWidth };
+  const rangeInputs = document.createElement('div');
+  rangeInputs.className = 'fs-range-inputs';
+  const inputStep = Math.max((dataMax - dataMin) / 100, Number.EPSILON);
+  const minInput = document.createElement('input');
+  minInput.type = 'number';
+  minInput.step = String(inputStep);
+  minInput.min = String(dataMin);
+  minInput.max = String(dataMax);
+  minInput.placeholder = formatValueText(dataMin, colName);
+  minInput.setAttribute('aria-label', 'Minimum ' + getColumnDisplayName(colName));
+  const maxInput = document.createElement('input');
+  maxInput.type = 'number';
+  maxInput.step = String(inputStep);
+  maxInput.min = String(dataMin);
+  maxInput.max = String(dataMax);
+  maxInput.placeholder = formatValueText(dataMax, colName);
+  maxInput.setAttribute('aria-label', 'Maximum ' + getColumnDisplayName(colName));
+  const minLabel = document.createElement('label');
+  minLabel.innerHTML = '<span>Min</span>';
+  minLabel.appendChild(minInput);
+  const maxLabel = document.createElement('label');
+  maxLabel.innerHTML = '<span>Max</span>';
+  maxLabel.appendChild(maxInput);
+  rangeInputs.appendChild(minLabel);
+  rangeInputs.appendChild(maxLabel);
+  container.appendChild(rangeInputs);
+
+  filterState[colName] = {
+    type: 'num', min: null, max: null, dataMin, dataMax, numBins, binWidth,
+    minInput, maxInput,
+  };
+
+  function applyNumericInputs() {
+    const state = filterState[colName];
+    const parsedMin = minInput.value === '' ? null : Number(minInput.value);
+    const parsedMax = maxInput.value === '' ? null : Number(maxInput.value);
+    state.min = parsedMin !== null && Number.isFinite(parsedMin) ? Math.max(dataMin, parsedMin) : null;
+    state.max = parsedMax !== null && Number.isFinite(parsedMax) ? Math.min(dataMax, parsedMax) : null;
+    if (state.min !== null && state.max !== null && state.min > state.max) {
+      [state.min, state.max] = [state.max, state.min];
+      minInput.value = String(state.min);
+      maxInput.value = String(state.max);
+    }
+    brush.style.display = 'none';
+    hist.querySelectorAll('.fs-hist-bar').forEach(b => b.classList.remove('in-brush'));
+    rangeDisplay.textContent = state.min === null && state.max === null
+      ? ''
+      : formatValueText(state.min ?? dataMin, colName) + ' \u2013 ' + formatValueText(state.max ?? dataMax, colName);
+    applyAllFilters();
+  }
+  minInput.addEventListener('change', applyNumericInputs);
+  maxInput.addEventListener('change', applyNumericInputs);
 
   // Brush interaction
   let brushing = false, brushStartX = 0;
-  overlay.addEventListener('mousedown', (e) => {
+  overlay.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     brushing = true;
     const rect = hist.getBoundingClientRect();
@@ -2249,7 +3892,7 @@ function buildNumSection(colName, col, container) {
     brush.style.width = '0px';
   });
 
-  document.addEventListener('mousemove', (e) => {
+  document.addEventListener('pointermove', (e) => {
     if (!brushing) return;
     const rect = hist.getBoundingClientRect();
     let currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
@@ -2267,10 +3910,10 @@ function buildNumSection(colName, col, container) {
 
     const dLeft = dataMin + (left / rect.width) * (dataMax - dataMin);
     const dRight = dataMin + ((left + width) / rect.width) * (dataMax - dataMin);
-    rangeDisplay.textContent = formatValue(dLeft) + ' \\u2013 ' + formatValue(dRight);
+    rangeDisplay.textContent = formatValueText(dLeft, colName) + ' \\u2013 ' + formatValueText(dRight, colName);
   });
 
-  document.addEventListener('mouseup', () => {
+  document.addEventListener('pointerup', () => {
     if (!brushing) return;
     brushing = false;
     const bw = parseFloat(brush.style.width);
@@ -2278,6 +3921,8 @@ function buildNumSection(colName, col, container) {
       brush.style.display = 'none';
       filterState[colName].min = null;
       filterState[colName].max = null;
+      minInput.value = '';
+      maxInput.value = '';
       rangeDisplay.textContent = '';
       hist.querySelectorAll('.fs-hist-bar').forEach(b => b.classList.remove('in-brush'));
     } else {
@@ -2285,6 +3930,8 @@ function buildNumSection(colName, col, container) {
       const bl = parseFloat(brush.style.left);
       filterState[colName].min = dataMin + (bl / rect.width) * (dataMax - dataMin);
       filterState[colName].max = dataMin + ((bl + bw) / rect.width) * (dataMax - dataMin);
+      minInput.value = String(filterState[colName].min);
+      maxInput.value = String(filterState[colName].max);
     }
     applyAllFilters();
   });
@@ -2293,6 +3940,8 @@ function buildNumSection(colName, col, container) {
     brush.style.display = 'none';
     filterState[colName].min = null;
     filterState[colName].max = null;
+    minInput.value = '';
+    maxInput.value = '';
     rangeDisplay.textContent = '';
     hist.querySelectorAll('.fs-hist-bar').forEach(b => b.classList.remove('in-brush'));
     applyAllFilters();
@@ -2313,7 +3962,9 @@ function toggleCatFilter(colName, value) {
   }
 
   fsSections.querySelectorAll('.fs-bar-row[data-col="' + colName + '"]').forEach(row => {
-    row.classList.toggle('deselected', !!state.selected && !state.selected.has(row.dataset.value));
+    const selected = !!state.selected && state.selected.has(row.dataset.value);
+    row.classList.toggle('deselected', !!state.selected && !selected);
+    row.setAttribute('aria-pressed', String(selected));
   });
 
   applyAllFilters();
@@ -2398,9 +4049,17 @@ function updateBarCounts() {
 function clearAllFilters() {
   for (const state of Object.values(filterState)) {
     if (state.type === 'cat') state.selected = null;
-    else if (state.type === 'num') { state.min = null; state.max = null; }
+    else if (state.type === 'num') {
+      state.min = null;
+      state.max = null;
+      if (state.minInput) state.minInput.value = '';
+      if (state.maxInput) state.maxInput.value = '';
+    }
   }
-  fsSections.querySelectorAll('.fs-bar-row').forEach(r => r.classList.remove('deselected'));
+  fsSections.querySelectorAll('.fs-bar-row').forEach(r => {
+    r.classList.remove('deselected');
+    r.setAttribute('aria-pressed', 'false');
+  });
   fsSections.querySelectorAll('.fs-hist-brush').forEach(b => { b.style.display = 'none'; });
   fsSections.querySelectorAll('.fs-hist-bar').forEach(b => b.classList.remove('in-brush'));
   fsSections.querySelectorAll('.fs-hist-range').forEach(r => { r.textContent = ''; });
@@ -2430,8 +4089,11 @@ const exploreColorSection = document.getElementById('explore-color-section');
 const exploreFiltersSection = document.getElementById('explore-filters-section');
 
 function setActivePanelButtons(panelName) {
-  document.querySelectorAll('.tb-icon[data-panel]').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tb-icon[data-panel="' + panelName + '"]').forEach(b => b.classList.add('active'));
+  document.querySelectorAll('.tb-icon[data-panel]').forEach(b => {
+    const active = b.dataset.panel === panelName;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-expanded', String(active));
+  });
 }
 
 function focusExploreSection(focus) {
@@ -2456,28 +4118,46 @@ function togglePanel(name, opts = {}) {
     return;
   }
 
-  Object.values(panels).forEach(p => { if (p) p.classList.remove('open'); });
-  document.querySelectorAll('.tb-icon[data-panel]').forEach(b => b.classList.remove('active'));
+  Object.values(panels).forEach(p => {
+    if (!p) return;
+    p.classList.remove('open');
+    p.setAttribute('aria-hidden', 'true');
+  });
+  setActivePanelButtons('');
   if (!wasOpen && panel) {
     panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
     if (requestedFocus) panel.dataset.focus = requestedFocus;
     setActivePanelButtons(name);
     if (name === 'explore') focusExploreSection(requestedFocus);
+    requestAnimationFrame(() => panel.querySelector('.panel-title')?.focus({ preventScroll: true }));
   }
+  updateWorkspaceLayout();
 }
 
 document.querySelectorAll('.tb-icon[data-panel]').forEach(btn => {
   btn.addEventListener('click', () => togglePanel(btn.dataset.panel, { focus: btn.dataset.focus || '' }));
 });
 document.querySelectorAll('.panel-close[data-panel]').forEach(btn => {
-  btn.addEventListener('click', () => togglePanel(btn.dataset.panel, { focus: '' }));
+  btn.addEventListener('click', () => {
+    const trigger = document.querySelector('.tb-icon[data-panel="' + btn.dataset.panel + '"]');
+    togglePanel(btn.dataset.panel, { focus: '' });
+    trigger?.focus();
+  });
 });
 
 // Escape closes any open panel
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    Object.values(panels).forEach(p => { if (p) p.classList.remove('open'); });
-    document.querySelectorAll('.tb-icon[data-panel]').forEach(b => b.classList.remove('active'));
+    const activeButton = document.querySelector('.tb-icon[data-panel][aria-expanded="true"]');
+    Object.values(panels).forEach(p => {
+      if (!p) return;
+      p.classList.remove('open');
+      p.setAttribute('aria-hidden', 'true');
+    });
+    setActivePanelButtons('');
+    updateWorkspaceLayout();
+    activeButton?.focus();
   }
 });
 
@@ -2500,22 +4180,88 @@ tbClear.addEventListener('click', () => { clearAllFilters(); updateToolbarCount(
 
 // ── Theme toggle ──
 const tbTheme = document.getElementById('tb-theme');
-const darkBg = [0, 0, 0, 1];
-const lightBg = [1, 1, 1, 1];
-let isDarkTheme = true;
-// Force dark background on load regardless of viz.background_color
-scatterplot.set({ backgroundColor: darkBg });
-tbTheme.addEventListener('click', () => {
-  isDarkTheme = !isDarkTheme;
+const sunIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><g stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="8" y1="1.5" x2="8" y2="3.5"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="1.5" y1="8" x2="3.5" y2="8"/><line x1="12.5" y1="8" x2="14.5" y2="8"/></g></svg>';
+const moonIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 1.5a6.5 6.5 0 1 0 7.4 9.7A5.5 5.5 0 0 1 6 1.5z"/></svg>';
+function applyTheme(background) {
   document.documentElement.dataset.theme = isDarkTheme ? '' : 'light';
-  scatterplot.set({ backgroundColor: isDarkTheme ? darkBg : lightBg });
-  edgeColor = isDarkTheme ? parseEdgeColor(edgeStrokeStyle) : [1, 1, 1, edgeColor[3]];
+  document.documentElement.style.setProperty('--map-background', backgroundToCss(background));
+  scatterplot.set({ backgroundColor: background });
+  edgeColor = edgeColorForBackground(background);
   edgeNeedsRedraw = true;
   if (typeof renderEdges === 'function') renderEdges();
-  tbTheme.innerHTML = isDarkTheme
-    ? '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 1.5a6.5 6.5 0 1 0 7.4 9.7A5.5 5.5 0 0 1 6 1.5z"/></svg>'
-    : '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><g stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="8" y1="1.5" x2="8" y2="3.5"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="1.5" y1="8" x2="3.5" y2="8"/><line x1="12.5" y1="8" x2="14.5" y2="8"/></g></svg>';
+  const nextTheme = isDarkTheme ? 'light' : 'dark';
+  tbTheme.innerHTML = isDarkTheme ? sunIcon : moonIcon;
+  tbTheme.setAttribute('aria-label', 'Use ' + nextTheme + ' theme');
+  tbTheme.title = 'Use ' + nextTheme + ' theme';
+}
+applyTheme(isDarkTheme ? darkBg : lightBg);
+tbTheme.addEventListener('click', () => {
+  isDarkTheme = !isDarkTheme;
+  applyTheme(isDarkTheme ? darkBg : lightBg);
 });
+
+// ── View reset and keyboard map controls ──
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cameraTransition = reduceMotion ? {} : { transition: true, transitionDuration: 180 };
+function resetMapView() {
+  scatterplot.zoomToOrigin(reduceMotion ? {} : { transition: true, transitionDuration: 260 });
+}
+canvas.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const key = e.key;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', '_', '0'].includes(key)) return;
+  e.preventDefault();
+  if (key === '0') {
+    resetMapView();
+    return;
+  }
+  const target = [...(scatterplot.get('cameraTarget') || [0, 0])];
+  const distance = scatterplot.get('cameraDistance') || 1;
+  if (key === '+' || key === '=') scatterplot.zoomToLocation(target, Math.max(0.0001, distance * 0.8), cameraTransition);
+  else if (key === '-' || key === '_') scatterplot.zoomToLocation(target, distance * 1.25, cameraTransition);
+  else {
+    const step = distance * 0.12;
+    if (key === 'ArrowLeft') target[0] -= step;
+    if (key === 'ArrowRight') target[0] += step;
+    if (key === 'ArrowUp') target[1] += step;
+    if (key === 'ArrowDown') target[1] -= step;
+    scatterplot.zoomToLocation(target, distance, cameraTransition);
+  }
+});
+
+// ── First-run interaction guide ──
+const interactionHelp = document.getElementById('interaction-help');
+const tbHelp = document.getElementById('tb-help');
+const helpClose = document.getElementById('help-close');
+const HELP_STORAGE_KEY = 'tmap.interaction-help.dismissed.v1';
+function setHelpVisible(visible, dismiss = false) {
+  interactionHelp.classList.toggle('hidden', !visible);
+  interactionHelp.setAttribute('aria-hidden', String(!visible));
+  tbHelp.classList.toggle('active', visible);
+  tbHelp.setAttribute('aria-expanded', String(visible));
+  if (dismiss) {
+    try { localStorage.setItem(HELP_STORAGE_KEY, '1'); } catch (_) { /* Storage may be unavailable. */ }
+  }
+}
+tbHelp.addEventListener('click', () => setHelpVisible(interactionHelp.classList.contains('hidden')));
+helpClose.addEventListener('click', () => {
+  setHelpVisible(false, true);
+  tbHelp.focus();
+});
+document.addEventListener('keydown', (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (e.key === '?' && tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
+    e.preventDefault();
+    setHelpVisible(true);
+    helpClose.focus();
+  } else if (e.key === 'Escape' && !interactionHelp.classList.contains('hidden')) {
+    setHelpVisible(false, true);
+    tbHelp.focus();
+  }
+});
+let helpDismissed = false;
+try { helpDismissed = localStorage.getItem(HELP_STORAGE_KEY) === '1'; } catch (_) { /* Ignore. */ }
+if (!helpDismissed) setTimeout(() => setHelpVisible(true), 450);
 
 // ── Point size slider ──
 {
@@ -2649,6 +4395,60 @@ if (smilesColumn && columnMeta[smilesColumn]) {
         console.warn('Failed to render SMILES in card:', smilesValue, err);
         cardStructure.classList.add('hidden');
       }
+    });
+
+    // Neighborhood thumbnails are intentionally rendered only as they enter
+    // the inspector viewport. This keeps large maps responsive even when a
+    // high-degree point has many connected neighbors.
+    let neighborStructureObserver = null;
+    function renderNeighborStructure(container) {
+      if (!container || container.dataset.rendered === 'true') return;
+      const smiles = container.dataset.smiles;
+      const svg = container.querySelector('svg');
+      if (!smiles || !svg || !svg.id) return;
+      container.dataset.rendered = 'true';
+      const width = Math.max(60, Math.floor(container.clientWidth || 68));
+      const height = Math.max(54, Math.floor(container.clientHeight || 58));
+      const options = { width, height, bondThickness: 0.75, compactDrawing: true, padding: 4 };
+      try {
+        if (SmiDrawerCtor) {
+          const smallDrawer = new SmiDrawerCtor(options);
+          smallDrawer.draw(smiles, '#' + svg.id, 'light');
+        } else if (SmilesDrawerLib && SmilesDrawerLib.Drawer && SmilesDrawerLib.parse) {
+          const smallDrawer = new SmilesDrawerLib.Drawer(options);
+          SmilesDrawerLib.parse(
+            smiles,
+            (tree) => smallDrawer.draw(tree, svg.id, 'light', false),
+            () => { container.dataset.rendered = 'error'; },
+          );
+        }
+      } catch (err) {
+        container.dataset.rendered = 'error';
+        console.warn('Failed to render neighborhood structure:', smiles, err);
+      }
+    }
+
+    cardStack.addEventListener('cardrendered', () => {
+      if (neighborStructureObserver) neighborStructureObserver.disconnect();
+      const structures = [...cardStack.querySelectorAll('.neighbor-structure[data-smiles]')];
+      if (!structures.length) return;
+      const comparisonStructures = structures.filter(container => container.closest('.comparison-view'));
+      comparisonStructures.forEach(renderNeighborStructure);
+      const lazyStructures = structures.filter(container => !container.closest('.comparison-view'));
+      if (!lazyStructures.length) return;
+      const cardBody = cardStack.querySelector('.card-body');
+      if (typeof IntersectionObserver === 'undefined') {
+        lazyStructures.forEach(renderNeighborStructure);
+        return;
+      }
+      neighborStructureObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          renderNeighborStructure(entry.target);
+          neighborStructureObserver?.unobserve(entry.target);
+        }
+      }, { root: cardBody, rootMargin: '80px 0px' });
+      lazyStructures.forEach(container => neighborStructureObserver.observe(container));
     });
   }
 } else if (smilesColumn) {

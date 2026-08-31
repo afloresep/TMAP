@@ -7,9 +7,9 @@ HTML visualization.
 For the step-by-step low-level pipeline, see smiles_tmap.py.
 
 Usage:
-    python examples/molecules_tmap.py
-    python examples/molecules_tmap.py --nrows 3000
-    python examples/molecules_tmap.py --serve
+    python examples/chemistry/molecules_tmap.py
+    python examples/chemistry/molecules_tmap.py --nrows 3000
+    python examples/chemistry/molecules_tmap.py --serve
 """
 
 from __future__ import annotations
@@ -22,8 +22,12 @@ import pandas as pd
 from tmap import TMAP
 from tmap.utils import fingerprints_from_smiles, molecular_properties, murcko_scaffolds
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
-DEFAULT_OUTPUT = Path(__file__).with_name("cluster_65053.html")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
+DEFAULT_OUTPUT = EXAMPLES_DIR / "cluster_65053.html"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +71,16 @@ def main() -> None:
     print(f"Loaded {len(smiles):,} molecules from {DATA_PATH.name}")
 
     print("Computing Morgan fingerprints...")
-    fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+    fps, valid = fingerprints_from_smiles(
+        smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+    )
+
+    # A SMILES that cannot be read gets no fingerprint, so drop it here.
+    # Otherwise the properties, scaffolds and tooltips computed below would
+    # end up attached to the wrong molecules.
+    if not valid.all():
+        print(f"  Dropping {int((~valid).sum()):,} unparseable SMILES")
+        smiles = [smi for smi, ok in zip(smiles, valid) if ok]
 
     print("Computing molecular properties...")
     props = molecular_properties(smiles, properties=["mw", "logp", "n_rings", "qed"])
@@ -92,6 +105,22 @@ def main() -> None:
     viz.add_color_layout("Ring Count", props["n_rings"].tolist(), categorical=True, color="tab10")
     viz.add_color_layout("QED", props["qed"].tolist(), color="magma")
     viz.add_label("Murcko Scaffold", scaffolds.tolist())
+
+    # Presentation and discovery controls used by the interactive HTML shell.
+    viz.filterable = ["MW", "LogP", "Ring Count", "QED"]
+    viz.searchable = ["SMILES", "Murcko Scaffold"]
+    viz.configure_column(
+        "SMILES",
+        link_template="https://pubchem.ncbi.nlm.nih.gov/#query={SMILES}",
+        copyable=True,
+    )
+    viz.configure_column("MW", display_name="Molecular weight", format="fixed:1")
+    viz.configure_column("LogP", format="fixed:2")
+    viz.configure_column("QED", format="fixed:3")
+    viz.configure_card(
+        title_column="SMILES",
+        fields=["MW", "LogP", "Ring Count", "QED", "Murcko Scaffold"],
+    )
 
     output_path = viz.write_html(args.output)
     print(f"Saved HTML to {output_path}")

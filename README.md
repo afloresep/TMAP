@@ -15,9 +15,9 @@ Tree-based visualization for high-dimensional data. Organizes similar items into
 
 ## Why Trees?
 
-Most dimensionality reduction tools (UMAP, t-SNE) produce point clouds. TMAP produces a **tree**, a connected structure where every point is linked to its neighbors through branches. This makes the layout itself explorable: you can follow branches, trace paths between any two points, and discover how regions connect.
+Most dimensionality reduction tools (UMAP, t-SNE, PCA) produce point clouds. TMAP produces a **tree**, a connected structure where every point is linked to its neighbors through branches. This makes the layout itself explorable because you can follow branches, trace paths between any two points, and discover how regions connect.
 
-For example, in a TMAP of pet breed images, following the branch from terriers toward cats reveals that the bridge between the two groups runs through chihuahuas and sphynx cats (the bald ones) which is both hilarious and logical; both are small, short-haired, big-eyed. The tree doesn't just cluster similar things it also shows you *how* dissimilar things are connected.
+For example, in a TMAP of pet breed images, following the branch from terriers toward cats reveals that the bridge between the two groups runs through chihuahuas and sphynx cats (the bald ones) which is both hilarious and logical since both are small, have short hair, big eyes... The tree doesn't just cluster similar things it also shows you *how* dissimilar things are connected.
 
 <p align="center">
   <img src="docs/images/breed-tree.gif" alt="Exploring pet breed tree" width="80%"/>
@@ -141,6 +141,8 @@ from tmap.utils.singlecell import from_anndata
 | [10 Protein Analysis](notebooks/10_protein_analysis.ipynb) | FASTA, ESM embeddings, AlphaFold |
 | [11 USearch Jaccard](notebooks/11_usearch_jaccard.ipynb) | Native binary Jaccard backend (high recall, low memory) |
 | [12 Legacy LSH Pipeline](notebooks/12_legacy_lsh_pipeline.ipynb) | Lower-level MinHash + LSHForest + layout workflow |
+| [13 Local Protein Structures](notebooks/13_local_protein_structures.ipynb) | Pinned cards with locally stored PDB/mmCIF structures |
+| [14 CAZyme Analysis](notebooks/14_cazyme_analysis.ipynb) | GH43 glycoside hydrolase family map, contributed example |
 
 ## Lower-Level Pipeline
 
@@ -171,6 +173,6 @@ pytest -v
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License; see [LICENSE](LICENSE) for details.
 
 Based on the original [TMAP](https://github.com/reymond-group/tmap) by Daniel Probst and Jean-Louis Reymond.

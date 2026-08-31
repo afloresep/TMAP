@@ -4,7 +4,7 @@ Demonstrates cosine metric support on a classic dataset.
 70,000 handwritten digits (784D pixel vectors) embedded as an explorable tree.
 
 Usage:
-    python examples/mnist_cosine_tmap.py
+    python examples/images/mnist_cosine_tmap.py
 
 Output:
     examples/mnist_tmap.html  — interactive TMAP visualization
@@ -13,12 +13,16 @@ Output:
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import numpy as np
 from sklearn.datasets import fetch_openml
 
 from tmap import TMAP
 from tmap.layout import LayoutConfig, ScalingType
+
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
@@ -58,7 +62,7 @@ def main() -> None:
     viz.background_color = "#FFFFFF"
 
     viz.add_color_layout("digit", labels.tolist(), categorical=True, color="tab10")
-    out_path = viz.write_html("examples/mnist_tmap.html")
+    out_path = viz.write_html(EXAMPLES_DIR / "mnist_tmap.html")
     print(f"\n  Saved: {out_path}")
 
     # ------------------------------------------------------------------

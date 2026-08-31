@@ -850,6 +850,23 @@ class TestSetEdges:
         assert len(viz._edges_s) == 3
         assert len(viz._edges_t) == 3
 
+    def test_set_edges_accepts_distances_for_neighborhood_similarity(self, viz_with_data):
+        viz, _ = viz_with_data
+
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.25, 0.4])
+
+        assert viz._edge_weights is not None
+        np.testing.assert_allclose(viz._edge_weights, [0.1, 0.25, 0.4])
+
+    def test_set_edges_rejects_invalid_distances(self, viz_with_data):
+        viz, _ = viz_with_data
+
+        with pytest.raises(ValueError, match="same length"):
+            viz.set_edges([0, 1], [1, 2], [0.1])
+
+        with pytest.raises(ValueError, match="finite, non-negative"):
+            viz.set_edges([0, 1], [1, 2], [0.1, -0.2])
+
     def test_set_edges_mismatched_length(self, viz_with_data):
         """Mismatched s and t should raise ValueError."""
         viz, data = viz_with_data
@@ -893,6 +910,17 @@ class TestSetEdges:
         assert meta["nEdges"] == 3
         assert meta["edgeStrokeStyle"] == "rgba(0, 0, 0, 0.5)"
         assert meta["edgeWidth"] == 2.0
+
+    def test_edge_distances_are_serialized_for_neighborhoods(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.25, 0.4])
+
+        out = viz.write_static(tmp_path / "weighted")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["hasEdgeWeights"] is True
+        assert (out / "edge_weights.bin").exists()
 
     def test_custom_edge_style_in_header(self, viz_with_data):
         """Custom edge style should be serialized in header metadata."""
@@ -1021,6 +1049,119 @@ class TestPlotStatic:
 # =============================================================================
 
 
+class TestAddFilter:
+    """Tests for add_filter: filter panel columns without a color layout."""
+
+    def test_registers_column_without_layout(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        assert "score" in viz._columns
+        assert viz._columns["score"].dtype == "continuous"
+        assert viz._columns["score"].color is None
+        assert viz._layout_keys == []
+        assert [c.name for c in viz.layouts] == []
+
+    def test_added_as_label_by_default(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        assert viz._columns["score"].role == "filter+label"
+        assert "score" in viz._labels_keys
+
+    def test_add_as_label_false(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"], add_as_label=False)
+
+        assert viz._columns["score"].role == "filter"
+        assert "score" not in viz._labels_keys
+
+    def test_categorical_filter(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("group", data["categorical"], categorical=True)
+
+        assert viz._columns["group"].dtype == "categorical"
+        assert viz._columns["group"].color is None
+
+    def test_continuous_rejects_non_numeric(self, viz_with_data):
+        viz, data = viz_with_data
+        with pytest.raises(ValueError, match="categorical=True"):
+            viz.add_filter("group", data["categorical"])
+
+    def test_rejects_existing_color_layout(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_color_layout("score", data["continuous"])
+        with pytest.raises(ValueError, match="already exists as a color layout"):
+            viz.add_filter("score", data["continuous"])
+
+    def test_repeated_call_does_not_duplicate(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+
+        assert viz._filter_keys == ["score"]
+
+    def test_metadata_lists_filter_without_colormap(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+        viz.add_filter("group", data["categorical"], categorical=True)
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["score", "group"]
+        assert meta["layoutOptions"] == []
+        # No colors were worked out for these columns.
+        assert meta["colormaps"] == {}
+        assert meta["columns"]["score"]["colormap"] is None
+        assert meta["columns"]["score"]["dtype"] == "float32"
+        assert meta["columns"]["group"]["dtype"] == "uint32"
+        assert sorted(meta["columns"]["group"]["dictionary"]) == ["A", "B", "C"]
+
+    def test_filters_come_before_color_layouts(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["score", "value"]
+
+    def test_filterable_property_overrides(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+        viz.add_filter("score", data["continuous"])
+        viz.filterable = ["value"]
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["filters"] == ["value"]
+
+    def test_comparison_falls_back_to_filter_columns(self, viz_with_data):
+        # With no color layouts, the neighbour comparison has to take its
+        # numbers from the filter panel instead.
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        html = viz.to_html()
+
+        assert "[...new Set([...filterColumnNames, ...layoutOptions])]" in html
+
+    def test_inline_html_carries_filter_column(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_filter("score", data["continuous"])
+
+        html = viz.to_html()
+        match = re.search(r"const metadata = ({.*?});", html, re.DOTALL)
+        assert match is not None
+        meta = json.loads(match.group(1))
+
+        assert meta["filters"] == ["score"]
+        assert "score" in meta["columns"]
+
+
 class TestFilterableProperty:
     """Tests for the filterable property."""
 
@@ -1067,6 +1208,223 @@ class TestSearchableProperty:
         viz = TmapViz()
         with pytest.raises(TypeError, match="list"):
             viz.searchable = 42
+
+
+class TestConfigureColumn:
+    """Tests for per-column HTML presentation hints."""
+
+    def test_stores_all_ui_hints(self):
+        viz = TmapViz()
+        viz.configure_column(
+            "score",
+            display_name="Confidence",
+            link_template="https://example.test/item/{name}",
+            copyable=True,
+            format="percent:1",
+        )
+
+        assert viz._column_ui["score"] == {
+            "displayName": "Confidence",
+            "linkTemplate": "https://example.test/item/{name}",
+            "copyable": True,
+            "format": "percent:1",
+        }
+
+    def test_repeated_calls_merge_hints(self):
+        viz = TmapViz()
+        viz.configure_column("score", display_name="Confidence")
+        viz.configure_column("score", format="fixed:2")
+
+        assert viz._column_ui["score"] == {
+            "displayName": "Confidence",
+            "format": "fixed:2",
+        }
+
+    def test_serialized_in_static_metadata(self, viz_with_data, tmp_path):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("score", data["continuous"])
+        viz.configure_column(
+            "score",
+            display_name="Confidence",
+            link_template="https://example.test/item/{name}",
+            format="fixed:2",
+        )
+
+        out = viz.write_static(tmp_path / "out")
+        meta = json.loads((out / "metadata.json").read_text())
+
+        assert meta["columns"]["score"]["ui"] == {
+            "displayName": "Confidence",
+            "linkTemplate": "https://example.test/item/{name}",
+            "format": "fixed:2",
+        }
+
+    def test_html_runtime_consumes_presentation_hints(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("score", data["continuous"])
+        viz.configure_column("score", display_name="Confidence", format="stars:5")
+
+        html = viz.to_html()
+
+        assert "function getColumnDisplayName" in html
+        assert "function formatValueText" in html
+        assert "function resolveColumnLink" in html
+        assert "renderColumnValue(name, val, idx)" in html
+
+
+class TestHtmlInteractionShell:
+    """Tests for the responsive, accessible visualization controls."""
+
+    def test_contains_responsive_and_keyboard_controls(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_color_layout("value", data["continuous"])
+
+        html = viz.to_html()
+
+        assert "@media (max-width: 640px)" in html
+        assert 'id="canvas" tabindex="0" role="region"' in html
+        assert 'id="tb-reset"' not in html
+        assert 'id="tb-help"' in html
+        assert 'id="interaction-help"' in html
+        assert "scatterplot.zoomToOrigin" in html
+
+    def test_theme_honors_configured_background(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.background_color = "#FFFFFF"
+        viz.add_color_layout("value", data["continuous"])
+
+        html = viz.to_html()
+
+        assert "const configuredBackground = normalizeBackground(metadata.backgroundColor)" in html
+        assert "Force dark background on load" not in html
+        assert "edgeColorForBackground" in html
+
+    def test_light_theme_styles_copyable_card_rows(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.configure_column("name", copyable=True)
+
+        html = viz.to_html()
+
+        assert '[data-theme="light"] .card-copy-row {' in html
+        assert '[data-theme="light"] .card-copy-row .value { color: #1d1d1f; }' in html
+
+    def test_search_navigation_and_docked_inspector(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.searchable = ["name"]
+
+        html = viz.to_html()
+
+        assert 'id="search-result-list"' in html
+        assert 'id="search-prev"' in html
+        assert 'id="search-next"' in html
+        assert 'id="partial-match" checked' in html
+        assert '<aside id="card-stack"' in html
+        assert 'aria-label="Point inspector"' in html
+        assert "function activateSearchMatch" in html
+        assert "scatterplot.zoomToLocation" in html
+        assert "openPointInspector(idx, { replace: true })" in html
+
+    def test_tool_panels_do_not_collide_with_selection_details(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+
+        html = viz.to_html()
+
+        assert "#panel-explore," in html
+        assert ".tool-panel-open #export-panel" in html
+        assert ".tool-panel-open.inspector-open #export-panel" in html
+        assert "max-width: none !important;" in html
+        assert "function updateWorkspaceLayout" in html
+        assert "&& (Boolean(openToolPanel) || exportVisible)" in html
+        assert "cardStack.classList.toggle('panel-suppressed', suppressInspector)" in html
+        assert "exportEl?.classList.toggle('panel-suppressed', suppressExport)" in html
+
+    def test_neighborhood_explorer_is_embedded_in_inspector(self, viz_with_data):
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "function buildNeighborIndex" in html
+        assert "function renderTreeExplorer" in html
+        assert 'class="neighborhood-section"' in html
+        assert "connected neighbors" in html
+        assert "Side-by-side comparison" in html
+        assert "IntersectionObserver" in html
+
+    def test_tree_focus_modes_are_embedded_in_inspector(self, viz_with_data):
+        """The inspector ships the Neighbors / Path chips and their walks."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        # Both chips share one section and one mode variable.
+        assert "function renderTreeModes" in html
+        assert "data-tree-mode=" in html
+        for mode, label in (("neighbors", "Neighbors"), ("path", "Path")):
+            assert f"mode: '{mode}', label: '{label}'" in html
+        assert "function setTreeFocus" in html
+        assert "let treeFocusMode = 'off';" in html
+
+        # Tree traversal primitives.
+        assert "function treeBfs" in html
+        assert "function treePath" in html
+
+        # Per-mode bodies.
+        assert "function renderNeighborBody" in html
+        assert "function renderPathBody" in html
+
+    def test_subtree_isolation_is_not_offered(self, viz_with_data):
+        """Lasso selection already covers branch isolation, so no Subtree mode."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "Subtree" not in html
+        assert "subtreeIndices" not in html
+        assert "branchSizes" not in html
+        assert "data-branch-select" not in html
+
+    def test_tree_distance_colouring_registers_a_synthetic_column(self, viz_with_data):
+        """Distance-from-here is a colour layout, routed through the Color by menu."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "function applyTreeDistanceColor" in html
+        assert "function retireTreeDistanceColumn" in html
+        assert "__tree_distance__" in html
+        assert "Colour map by distance from here" in html
+
+    def test_tree_explorer_bounds_its_work_on_large_maps(self, viz_with_data):
+        """Long paths are capped rather than rendered wholesale."""
+        viz, data = viz_with_data
+        viz.add_label("name", data["labels"])
+        viz.add_color_layout("value", data["continuous"])
+        viz.set_edges([0, 1, 2], [1, 2, 3], [0.1, 0.2, 0.3])
+
+        html = viz.to_html()
+
+        assert "const MAX_VISIBLE_PATH_NODES" in html
+        assert "const MAX_VISIBLE_NEIGHBORS" in html
 
 
 class TestConfigureCard:

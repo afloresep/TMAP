@@ -247,6 +247,43 @@ def _cycle_colormaps(
             colormaps_payload[cmap_name] = [base[i % len(base)] for i in range(needed)]
 
 
+def _coerce_column_values(
+    name: str,
+    values: list[Any] | NDArray,
+    categorical: bool,
+) -> list[Any] | NDArray:
+    """Turn column values into a list or float array, rejecting text in numeric columns."""
+    if isinstance(values, np.ndarray) and not categorical:
+        values = np.asarray(values, dtype=np.float32)
+    elif isinstance(values, np.ndarray):
+        values = values.tolist()
+    else:
+        values = list(values)
+
+    if categorical:
+        return values
+
+    for v in values:
+        if v is None or (isinstance(v, str) and v == ""):
+            continue
+        # pandas NA-like sentinels
+        try:
+            import pandas as _pd
+
+            if isinstance(v, type(_pd.NA)):
+                continue
+        except ImportError:
+            pass
+        try:
+            float(v)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"Continuous column '{name}' contains non-numeric value "
+                f"{v!r}. Use categorical=True for string values."
+            ) from None
+    return values
+
+
 def _contains_nan(values: Sequence[Any]) -> bool:
     """Return True when values contain at least one NaN."""
     try:
@@ -333,7 +370,7 @@ def _to_json_safe(value: Any) -> Any:
 class Column:
     name: str
     values: Sequence[int | np.floating | str]
-    role: Literal["layout", "label", "layout+label", "smiles", "images"]
+    role: Literal["layout", "label", "layout+label", "filter", "filter+label", "smiles", "images"]
     dtype: Literal["continuous", "categorical", "label", "smiles", "images"]
     color: str | None = None
 
@@ -411,6 +448,7 @@ class TmapViz:
         self._points_array: np.ndarray | None = None  # Shape: (n, 2)
         self._edges_s: np.ndarray | None = None
         self._edges_t: np.ndarray | None = None
+        self._edge_weights: np.ndarray | None = None
         self._layout_keys: list[str] = []
         self._labels_keys: list[str] = []
         self._smiles_column: str | None = None
@@ -428,6 +466,7 @@ class TmapViz:
         self._custom_colormaps: dict[str, list[str]] = {}
 
         # UI configuration (new declarative API)
+        self._filter_keys: list[str] = []
         self._filterable: list[str] = []
         self._searchable: list[str] = []
         self._card_config: dict[str, Any] | None = None
@@ -481,35 +520,9 @@ class TmapViz:
             layouts. If None, defaults to ``"tab10"`` for categorical and
             ``"viridis"`` for continuous.
         """
-        if isinstance(values, np.ndarray) and not categorical:
-            values = np.asarray(values, dtype=np.float32)
-        elif isinstance(values, np.ndarray):
-            values = values.tolist()
-        else:
-            values = list(values)
-
         # Default to continuous because it will give less issues and having to pass
         # always the type can be annoying...
-        # Validate continuous values are actually numeric
-        if not categorical:
-            for v in values:
-                if v is None or (isinstance(v, str) and v == ""):
-                    continue
-                # pandas NA-like sentinels
-                try:
-                    import pandas as _pd
-
-                    if isinstance(v, type(_pd.NA)):
-                        continue
-                except ImportError:
-                    pass
-                try:
-                    float(v)
-                except (ValueError, TypeError):
-                    raise ValueError(
-                        f"Continuous layout '{name}' contains non-numeric value "
-                        f"{v!r}. Use categorical=True for string values."
-                    ) from None
+        values = _coerce_column_values(name, values, categorical)
 
         _column_dtype: Literal["categorical", "continuous"] = (
             "categorical" if categorical else "continuous"
@@ -677,6 +690,70 @@ class TmapViz:
                 )
 
         return color
+
+    def add_filter(
+        self,
+        name: str,
+        values: list[Any] | NDArray,
+        categorical: bool = False,
+        add_as_label: bool = True,
+    ) -> None:
+        """Add a column to the filter panel without giving it colors.
+
+        Use this when people should be able to filter on a column but it
+        does not need to be one of the colors they can switch between.
+        Picking colors is the slow part of ``add_color_layout``, and this
+        method skips it, so extra filter columns cost very little.
+
+        Parameters
+        ----------
+        name : str
+            Column name shown in the filter panel and tooltip.
+        values : list or ndarray
+            One value per point.
+        categorical : bool, default False
+            If True, treat the values as separate groups and show one
+            clickable bar per group. Otherwise the panel shows a slider
+            for the range of numbers.
+        add_as_label : bool, default True
+            Also show the values in the hover tooltip.
+
+        Raises
+        ------
+        ValueError
+            If *name* is already a color layout. Color layouts can already
+            be filtered on, so there is nothing to add. To choose exactly
+            what the panel shows, set the ``filterable`` property instead.
+
+        Notes
+        -----
+        Columns added here go into the panel on top of the color layouts,
+        not instead of them. Setting ``filterable`` replaces both.
+        """
+        if name in self._layout_keys:
+            raise ValueError(
+                f"Cannot add filter '{name}': it already exists as a color layout, "
+                "and color layouts can already be filtered on. Set the 'filterable' "
+                "property to choose exactly which columns the panel shows."
+            )
+
+        values = _coerce_column_values(name, values, categorical)
+        _column_dtype: Literal["categorical", "continuous"] = (
+            "categorical" if categorical else "continuous"
+        )
+
+        if add_as_label:
+            if name not in self._labels_keys:
+                self._labels_keys.append(name)
+            role: Literal["filter", "filter+label"] = "filter+label"
+        else:
+            if name in self._labels_keys:
+                self._labels_keys.remove(name)
+            role = "filter"
+
+        self._columns[name] = Column(name, values, role, _column_dtype)
+        if name not in self._filter_keys:
+            self._filter_keys.append(name)
 
     def add_label(
         self,
@@ -929,9 +1006,27 @@ class TmapViz:
         self._structures_3d_file_paths = file_paths
         self._structures_3d_copy_sidecars = True
 
+    def _filter_options(self) -> list[str] | None:
+        """Work out which columns the filter panel should show.
+
+        A ``filterable`` list set by hand wins. Otherwise the panel shows
+        the columns added with ``add_filter`` first, then the color
+        layouts, which have always been filterable by default.
+        """
+        if self._filterable:
+            return list(self._filterable)
+        options = list(self._filter_keys)
+        options += [name for name in self._layout_keys if name not in self._filter_keys]
+        return options or None
+
     @property
     def filterable(self) -> list[str]:
-        """Column names shown in the filter panel."""
+        """Column names shown in the filter panel.
+
+        Empty by default, which means the panel shows the columns added
+        with ``add_filter`` plus every color layout. Assigning a list
+        replaces that with exactly the columns you name.
+        """
         return list(self._filterable)
 
     @filterable.setter
@@ -967,9 +1062,15 @@ class TmapViz:
             display_name: Override the label shown in cards/tooltips.
             link_template: URL template with ``{column_name}`` placeholders.
             copyable: If True, add a copy button for this value.
-            format: Display format hint (e.g. ``"stars:5"``).
+            format: Display format hint. Supported values are ``"fixed:N"``,
+                ``"percent:N"``, ``"scientific:N"``, ``"integer"``, and
+                ``"stars:N"``, where ``N`` controls precision or star count.
+
+        Notes:
+            Repeated calls merge with the column's existing hints, so one UI
+            setting can be changed without restating the others.
         """
-        ui: dict[str, Any] = {}
+        ui: dict[str, Any] = dict(self._column_ui.get(name, {}))
         if display_name is not None:
             ui["displayName"] = display_name
         if link_template is not None:
@@ -1125,12 +1226,17 @@ class TmapViz:
         self,
         s: list[int] | NDArray[np.unsignedinteger],
         t: list[int] | NDArray[np.unsignedinteger],
+        weights: list[float] | NDArray[np.floating] | None = None,
     ) -> None:
-        """Set MST edge source/target index arrays.
+        """Set MST edge source/target arrays and optional edge distances.
 
         Args:
             s: Source vertex indices for each edge.
             t: Target vertex indices for each edge.
+            weights: Optional non-negative distance for each edge. The HTML
+                Neighborhood Explorer converts these distances to similarity
+                scores. When omitted, it estimates similarity from the plotted
+                coordinate distance.
 
         Raises:
             ValueError: If arrays differ in length, are not 1-D, or contain
@@ -1149,6 +1255,19 @@ class TmapViz:
                 f"Edge arrays must have the same length. Got s: {len(s_arr)} and t: {len(t_arr)}"
             )
 
+        weights_arr: np.ndarray | None = None
+        if weights is not None:
+            weights_arr = np.asarray(weights, dtype=np.float32)
+            if weights_arr.ndim != 1:
+                raise ValueError(f"Edge weights must be 1-dimensional. Got {weights_arr.ndim}D")
+            if weights_arr.shape != s_arr.shape:
+                raise ValueError(
+                    "Edge weights must have the same length as the edge arrays. "
+                    f"Got weights: {len(weights_arr)} and edges: {len(s_arr)}"
+                )
+            if not np.all(np.isfinite(weights_arr)) or np.any(weights_arr < 0):
+                raise ValueError("Edge weights must contain finite, non-negative distances")
+
         if self.n_points > 0:
             max_idx = self.n_points
             if s_arr.size > 0 and (s_arr.max() >= max_idx or t_arr.max() >= max_idx):
@@ -1159,6 +1278,7 @@ class TmapViz:
 
         self._edges_s = s_arr
         self._edges_t = t_arr
+        self._edge_weights = weights_arr
 
     def set_edge_style(
         self,
@@ -1608,12 +1728,19 @@ class TmapViz:
 
         # Pack edges if present
         edges_b64 = ""
+        edge_weights_b64 = ""
         n_edges = 0
         if self._edges_s is not None and self._edges_t is not None:
             n_edges = len(self._edges_s)
             edges_combined = np.concatenate([self._edges_s, self._edges_t]).astype(np.uint32)
             edges_compressed = gzip.compress(edges_combined.tobytes(), compresslevel=6)
             edges_b64 = base64.b64encode(edges_compressed).decode("ascii")
+            if self._edge_weights is not None:
+                weights_compressed = gzip.compress(
+                    self._edge_weights.astype(np.float32, copy=False).tobytes(),
+                    compresslevel=6,
+                )
+                edge_weights_b64 = base64.b64encode(weights_compressed).decode("ascii")
 
         # Build metadata (same flat structure as write_static)
         layout_options = list(self._layout_keys)
@@ -1654,9 +1781,10 @@ class TmapViz:
             "structures3dSource": self._structures_3d_source,
             "structures3dFormat": self._structures_3d_format,
             "nEdges": n_edges,
+            "hasEdgeWeights": bool(edge_weights_b64),
             "columns": columns_meta,
             "card": self._card_config,
-            "filters": self._filterable if self._filterable else (layout_options or None),
+            "filters": self._filter_options(),
             "search": self._searchable if self._searchable else (label_options or None),
         }
 
@@ -1683,6 +1811,7 @@ class TmapViz:
             inline_coords=coords_b64,
             inline_columns=columns_b64,
             inline_edges=edges_b64,
+            inline_edge_weights=edge_weights_b64,
         )
 
     def write_html(
@@ -1770,6 +1899,12 @@ class TmapViz:
             edges_combined = np.concatenate([self._edges_s, self._edges_t]).astype(np.uint32)
             edges_compressed = gzip.compress(edges_combined.tobytes(), compresslevel=6)
             (output_dir / "edges.bin").write_bytes(edges_compressed)
+            if self._edge_weights is not None:
+                weights_compressed = gzip.compress(
+                    self._edge_weights.astype(np.float32, copy=False).tobytes(),
+                    compresslevel=6,
+                )
+                (output_dir / "edge_weights.bin").write_bytes(weights_compressed)
 
         # Columns
         columns_meta: dict[str, dict[str, Any]] = {}
@@ -1859,9 +1994,10 @@ class TmapViz:
             "structures3dSource": self._structures_3d_source,
             "structures3dFormat": self._structures_3d_format,
             "nEdges": n_edges,
+            "hasEdgeWeights": self._edge_weights is not None and n_edges > 0,
             "columns": columns_meta,
             "card": self._card_config,
-            "filters": self._filterable if self._filterable else (layout_options or None),
+            "filters": self._filter_options(),
             "search": self._searchable if self._searchable else (label_options or None),
         }
 
@@ -1890,6 +2026,7 @@ class TmapViz:
             inline_coords="",
             inline_columns={},
             inline_edges="",
+            inline_edge_weights="",
         )
         (output_dir / "index.html").write_text(html, encoding="utf-8")
 

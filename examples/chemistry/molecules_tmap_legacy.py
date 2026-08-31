@@ -1,7 +1,7 @@
 """molecules_tmap.py variant with the adaptive layout + untangle post-pass OFF.
 
 Usage:
-    python examples/molecules_tmap_legacy.py
+    python examples/chemistry/molecules_tmap_legacy.py
 """
 
 from __future__ import annotations
@@ -14,8 +14,12 @@ from tmap import TMAP
 from tmap.layout import LayoutConfig
 from tmap.utils import fingerprints_from_smiles, molecular_properties, murcko_scaffolds
 
-DATA_PATH = Path(__file__).with_name("cluster_65053.csv")
-OUTPUT = Path(__file__).with_name("cluster_65053_legacy.html")
+# Scripts live in a subfolder; data, caches and outputs stay at examples/.
+EXAMPLES_DIR = Path(__file__).resolve().parents[1]
+
+
+DATA_PATH = EXAMPLES_DIR / "cluster_65053.csv"
+OUTPUT = EXAMPLES_DIR / "cluster_65053_legacy.html"
 
 
 def main() -> None:
@@ -23,7 +27,15 @@ def main() -> None:
     print(f"Loaded {len(smiles):,} molecules from {DATA_PATH.name}")
 
     print("Computing Morgan fingerprints...")
-    fps = fingerprints_from_smiles(smiles, fp_type="morgan", radius=2, n_bits=2048)
+    fps, valid = fingerprints_from_smiles(
+        smiles, fp_type="morgan", radius=2, n_bits=2048, return_valid=True
+    )
+
+    # Drop the SMILES that could not be read, so everything computed below
+    # still belongs to the right molecule.
+    if not valid.all():
+        print(f"  Dropping {int((~valid).sum()):,} unparseable SMILES")
+        smiles = [smi for smi, ok in zip(smiles, valid) if ok]
 
     print("Computing molecular properties...")
     props = molecular_properties(smiles, properties=["mw", "logp", "n_rings", "qed"])
