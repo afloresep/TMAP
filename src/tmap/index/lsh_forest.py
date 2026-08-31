@@ -2,8 +2,8 @@
 LSH Forest implementation for approximate nearest neighbor search.
 
 This module provides a custom Numba-accelerated implementation:
-- Numba JIT for hash band computation (parallel, 50-100x faster than datasketch)
-- Sorted arrays with binary search for O(log n) lookups
+- Lexicographically sorted prefix trees with adaptive prefix backoff
+- Numba JIT candidate retrieval and distance computation
 - Numba JIT for distance computation and linear scan
 
 The LSH Forest is optimized for Jaccard similarity on MinHash signatures,
@@ -11,7 +11,9 @@ The LSH Forest is optimized for Jaccard similarity on MinHash signatures,
 
 from __future__ import annotations
 
+import os
 import pickle
+from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
 import numpy as np
@@ -19,18 +21,19 @@ from numpy.typing import NDArray
 
 from ._lsh_numba import (
     compute_distances_to_candidates,
-    compute_hash_bands,
-    compute_hash_bands_weighted,
     compute_weighted_distances_to_candidates,
     jaccard_distance,
     linear_scan_batch,
     linear_scan_batch_weighted,
     query_lsh_forest_batch,
+    query_lsh_forest_batch_weighted,
     weighted_jaccard_distance,
 )
 from .types import KNNGraph
 
 __all__ = ["LSHForest"]
+
+_CANDIDATE_BUFFER_BYTES = 256 * 1024 * 1024
 
 
 class LSHForest:
@@ -39,10 +42,11 @@ class LSHForest:
 
     Args:
         d: Dimensionality of MinHash vectors (number of permutations). Default: 128
-        l: Number of prefix trees (bands). Default: d // 2. Lower values increase
-            band width (k = d // l), which reduces candidate recall for low-similarity
-            data. The safe range depends on dataset similarity — see ISS-018.
-        store: Store signatures for linear scan and distance queries. Default: True
+        l: Number of prefix trees. Each tree owns ``d // l`` consecutive
+            signature values. Default: 8, matching the original TMAP API.
+        store: Expose signatures for linear scan and distance methods. The
+            prefix index itself always retains the values needed for queries.
+            Default: True.
         weighted: Whether using weighted MinHash signatures. Default: False
 
     Example:
@@ -53,7 +57,7 @@ class LSHForest:
         >>> mh = MinHash(num_perm=128)
         >>> sigs = mh.batch_from_binary_array(fingerprints)
         >>>
-        >>> # Build LSH Forest (default l=d//2 for good recall)
+        >>> # Build LSH Forest
         >>> lsh = LSHForest(d=128)
         >>> lsh.batch_add(sigs)
         >>> lsh.index()
@@ -73,7 +77,7 @@ class LSHForest:
             raise ValueError("d must be positive")
 
         if l is None:
-            l = d // 2
+            l = min(8, d)
 
         if l <= 0:
             raise ValueError("l must be positive")
@@ -86,14 +90,12 @@ class LSHForest:
         self._store = store
         self._weighted = weighted
 
-        # Signature storage for linear scan and distance queries
-        # Collected in list during adds, converted to contiguous array in index()
+        # Pending signatures are collected in batches and made contiguous by index().
         self._signatures_list: list[NDArray[np.uint64]] = []
+        self._index_signatures: NDArray[np.uint64] | None = None
         self._signatures: NDArray[np.uint64] | None = None
 
-        # LSH index structures (built in index())
-        self._hash_bands: NDArray[np.uint64] | None = None
-        self._sorted_hashes_flat: NDArray[np.uint64] | None = None
+        # Each tree stores row IDs in lexicographic order of its full band.
         self._sorted_indices_flat: NDArray[np.int32] | None = None
         self._band_offsets: NDArray[np.int64] | None = None
 
@@ -157,6 +159,21 @@ class LSHForest:
         else:
             return cast(float, jaccard_distance(sig_a, sig_b))
 
+    def _get_index_signatures(self) -> NDArray[np.uint64] | None:
+        """Return index data, including compatibility with older object pickles."""
+        signatures = getattr(self, "_index_signatures", None)
+        if signatures is None:
+            signatures = self._signatures
+            self._index_signatures = signatures
+        return signatures
+
+    @staticmethod
+    def _validate_query_parameters(k: int, kc: int | None = None) -> None:
+        if k <= 0:
+            raise ValueError(f"k must be positive, got {k}")
+        if kc is not None and kc <= 0:
+            raise ValueError(f"kc must be positive, got {kc}")
+
     # Add methods
 
     def add(self, signature: NDArray[np.uint64]) -> None:
@@ -171,9 +188,8 @@ class LSHForest:
         """
         self._validate_signature_shape(signature)
 
-        # Store as 2D/3D batch of size 1 so index() can use np.concatenate
-        if self._store:
-            self._signatures_list.append(signature[np.newaxis].copy())
+        # Prefix queries require the raw band values even when store=False.
+        self._signatures_list.append(signature[np.newaxis].copy())
 
         self._needs_reindex = True
 
@@ -189,10 +205,8 @@ class LSHForest:
         """
         self._validate_signature_shape(signatures, batch=True)
 
-        if self._store:
-            # Store whole batch as one contiguous array (not individual rows).
-            # This avoids N separate Python objects and cuts memory by ~50%.
-            self._signatures_list.append(signatures.copy())
+        # Store a whole batch rather than N individual Python objects.
+        self._signatures_list.append(signatures.copy())
 
         self._needs_reindex = True
 
@@ -204,53 +218,58 @@ class LSHForest:
 
         Must be called after adding signatures with add() or batch_add().
         """
+        previous = self._get_index_signatures()
         if not self._signatures_list:
-            # Nothing to index
-            self._n_indexed = 0
-            self._is_indexed = True
-            self._needs_reindex = False
+            if previous is None:
+                self._n_indexed = 0
+                self._is_indexed = True
+                self._needs_reindex = False
             return
 
         # Convert list to contiguous array for efficient Numba access.
         # Include previously indexed signatures if this is a re-index.
         all_parts = self._signatures_list
-        if self._signatures is not None and len(self._signatures) > 0:
-            all_parts = [self._signatures] + all_parts
+        if previous is not None and len(previous) > 0:
+            all_parts = [previous] + all_parts
 
         if len(all_parts) == 1:
-            self._signatures = all_parts[0]
+            index_signatures = np.ascontiguousarray(all_parts[0])
         else:
-            self._signatures = np.concatenate(all_parts)
+            index_signatures = np.concatenate(all_parts)
         self._signatures_list = []  # free intermediate copies
-        n = self._signatures.shape[0]
+        n = index_signatures.shape[0]
 
-        # Compute hash bands for all signatures
-        if self._weighted:
-            self._hash_bands = compute_hash_bands_weighted(self._signatures, self._l, self._k)
+        def sort_tree(tree: int) -> tuple[int, NDArray[np.int32]]:
+            start = tree * self._k
+            end = start + self._k
+            if self._weighted:
+                band = index_signatures[:, start:end, :].reshape(n, self._k * 2)
+            else:
+                band = index_signatures[:, start:end]
+            # np.lexsort uses its final key as the primary key, hence reverse
+            # the columns so the first value in a band is compared first.
+            keys = tuple(band[:, column] for column in range(band.shape[1] - 1, -1, -1))
+            order = np.lexsort(keys).astype(np.int32, copy=False)
+            return tree, order
+
+        sorted_indices = np.empty((self._l, n), dtype=np.int32)
+        max_workers = min(self._l, os.cpu_count() or 1) if n >= 4096 else 1
+        if max_workers == 1:
+            sorted_trees = map(sort_tree, range(self._l))
+            for tree, order in sorted_trees:
+                sorted_indices[tree] = order
         else:
-            self._hash_bands = compute_hash_bands(self._signatures, self._l, self._k)
+            # NumPy releases the GIL while lexsorting. Trees are independent,
+            # so building them concurrently closes the gap to the OpenMP C++
+            # reference without changing their deterministic order.
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for tree, order in executor.map(sort_tree, range(self._l)):
+                    sorted_indices[tree] = order
 
-        # Build sorted hash tables for each band
-        # flatten all bands into single arrays
-        sorted_hashes_list = []
-        sorted_indices_list = []
-        band_sizes = []
-
-        for band in range(self._l):
-            band_hashes = self._hash_bands[:, band]
-            # Sort by hash value
-            sort_order = np.argsort(band_hashes)
-            sorted_hashes_list.append(band_hashes[sort_order])
-            sorted_indices_list.append(sort_order.astype(np.int32))
-            band_sizes.append(n)
-
-        # Flatten into contiguous arrays
-        self._sorted_hashes_flat = np.concatenate(sorted_hashes_list)
-        self._sorted_indices_flat = np.concatenate(sorted_indices_list)
-
-        # Compute offsets
-        self._band_offsets = np.zeros(self._l + 1, dtype=np.int64)
-        self._band_offsets[1:] = np.cumsum(band_sizes)
+        self._index_signatures = index_signatures
+        self._signatures = index_signatures if self._store else None
+        self._sorted_indices_flat = sorted_indices.reshape(-1)
+        self._band_offsets = np.arange(self._l + 1, dtype=np.int64) * n
 
         self._n_indexed = n
         self._is_indexed = True
@@ -274,30 +293,27 @@ class LSHForest:
         """
         if not self._is_indexed:
             raise RuntimeError("Must call index() before querying")
+        self._validate_query_parameters(k)
         if self._n_indexed == 0:
             return np.array([], dtype=np.int32)
 
         self._validate_signature_shape(signature)
-
-        # Compute hash bands for query
-        if self._weighted:
-            query_bands = compute_hash_bands_weighted(signature[np.newaxis, :, :], self._l, self._k)
-        else:
-            query_bands = compute_hash_bands(signature[np.newaxis, :], self._l, self._k)
-
+        index_signatures = self._get_index_signatures()
         if (
-            self._sorted_hashes_flat is None
+            index_signatures is None
             or self._sorted_indices_flat is None
             or self._band_offsets is None
         ):
             raise RuntimeError("Index structures not initialized")
 
-        # Query using Numba batch function (single query)
-        candidates, counts = query_lsh_forest_batch(
-            query_bands,
-            self._sorted_hashes_flat,
+        query_batch = signature[np.newaxis]
+        query_fn = query_lsh_forest_batch_weighted if self._weighted else query_lsh_forest_batch
+        candidates, counts = query_fn(
+            query_batch,
+            index_signatures,
             self._sorted_indices_flat,
             self._band_offsets,
+            self._k,
             k,
         )
 
@@ -353,6 +369,7 @@ class LSHForest:
             raise ValueError("linear_scan requires store=True")
         if self._signatures is None:
             raise RuntimeError("Must call index() before linear scan")
+        self._validate_query_parameters(k)
 
         self._validate_signature_shape(signature)
 
@@ -463,7 +480,7 @@ class LSHForest:
         """
         Construct the k-nearest neighbor graph of all indexed signatures.
 
-        This is the primary output method becuase it produces input for OGDF layout
+        This is the primary output method because it produces input for OGDF layout
         and MST construction APIs.
 
         Args:
@@ -477,43 +494,46 @@ class LSHForest:
             raise ValueError("get_knn_graph requires store=True")
         if self._signatures is None or self._n_indexed == 0:
             raise RuntimeError("Must add signatures and call index() first")
+        self._validate_query_parameters(k, kc)
 
-        max_candidates = k * kc
-
+        max_candidates = min(k * kc, self._n_indexed)
+        index_signatures = self._get_index_signatures()
         if (
-            self._hash_bands is None
-            or self._sorted_hashes_flat is None
+            index_signatures is None
             or self._sorted_indices_flat is None
             or self._band_offsets is None
         ):
             raise RuntimeError("Index structures not initialized")
 
-        # Batch query all signatures using Numba-parallel
-        all_candidates, candidate_counts = query_lsh_forest_batch(
-            self._hash_bands,
-            self._sorted_hashes_flat,
-            self._sorted_indices_flat,
-            self._band_offsets,
-            max_candidates,
-        )
+        indices = np.full((self._n_indexed, k), -1, dtype=np.int32)
+        distances = np.full((self._n_indexed, k), np.float32(2.0), dtype=np.float32)
+        bytes_per_query = max(max_candidates * np.dtype(np.int32).itemsize, 1)
+        batch_size = max(1, min(self._n_indexed, _CANDIDATE_BUFFER_BYTES // bytes_per_query))
+        query_fn = query_lsh_forest_batch_weighted if self._weighted else query_lsh_forest_batch
+        scan_fn = linear_scan_batch_weighted if self._weighted else linear_scan_batch
 
-        # Numba-accelerated linear scan
-        if self._weighted:
-            indices, distances = linear_scan_batch_weighted(
-                self._signatures,
-                self._signatures,
-                all_candidates,
-                candidate_counts,
-                k,
+        for start in range(0, self._n_indexed, batch_size):
+            end = min(start + batch_size, self._n_indexed)
+            queries = self._signatures[start:end]
+            candidates, counts = query_fn(
+                queries,
+                index_signatures,
+                self._sorted_indices_flat,
+                self._band_offsets,
+                self._k,
+                max_candidates,
             )
-        else:
-            indices, distances = linear_scan_batch(
+            batch_indices, batch_distances = scan_fn(
+                queries,
                 self._signatures,
-                self._signatures,
-                all_candidates,
-                candidate_counts,
+                candidates,
+                counts,
                 k,
+                True,
+                start,
             )
+            indices[start:end] = batch_indices
+            distances[start:end] = batch_distances
 
         return KNNGraph(indices=indices, distances=distances)
 
@@ -526,7 +546,7 @@ class LSHForest:
         """Query k-nearest stored neighbors for a batch of *external* signatures.
 
         Uses the same Numba-parallel pipeline as :meth:`get_knn_graph`
-        (hash-band retrieval -> linear scan) but does **not** exclude
+        (adaptive-prefix retrieval -> linear scan) but does **not** exclude
         self-matches, since the query signatures are not part of the index.
 
         Parameters
@@ -550,27 +570,24 @@ class LSHForest:
             raise ValueError("query_external_batch requires store=True")
         if self._signatures is None or self._n_indexed == 0:
             raise RuntimeError("Must add signatures and call index() first")
+        self._validate_query_parameters(k, kc)
+        self._validate_signature_shape(signatures, batch=True)
+        index_signatures = self._get_index_signatures()
         if (
-            self._sorted_hashes_flat is None
+            index_signatures is None
             or self._sorted_indices_flat is None
             or self._band_offsets is None
         ):
             raise RuntimeError("Index structures not initialized")
 
-        max_candidates = k * kc
-
-        # Compute hash bands for the external signatures
-        if self._weighted:
-            query_bands = compute_hash_bands_weighted(signatures, self._l, self._k)
-        else:
-            query_bands = compute_hash_bands(signatures, self._l, self._k)
-
-        # Batch LSH candidate retrieval (Numba-parallel)
-        all_candidates, candidate_counts = query_lsh_forest_batch(
-            query_bands,
-            self._sorted_hashes_flat,
+        max_candidates = min(k * kc, self._n_indexed)
+        query_fn = query_lsh_forest_batch_weighted if self._weighted else query_lsh_forest_batch
+        all_candidates, candidate_counts = query_fn(
+            signatures,
+            index_signatures,
             self._sorted_indices_flat,
             self._band_offsets,
+            self._k,
             max_candidates,
         )
 
@@ -583,6 +600,7 @@ class LSHForest:
                 candidate_counts,
                 k,
                 False,
+                0,
             )
         else:
             indices, distances = linear_scan_batch(
@@ -592,6 +610,7 @@ class LSHForest:
                 candidate_counts,
                 k,
                 False,
+                0,
             )
 
         # Replace sentinel 2.0 distances with inf for consistency
@@ -720,19 +739,20 @@ class LSHForest:
             path: File path for serialization
         """
         state = {
+            "format_version": 2,
             "d": self._d,
             "l": self._l,
             "k": self._k,
             "store": self._store,
             "weighted": self._weighted,
+            "index_signatures": self._get_index_signatures(),
             "signatures": self._signatures,
             "signatures_list": self._signatures_list,
-            "hash_bands": self._hash_bands,
-            "sorted_hashes_flat": self._sorted_hashes_flat,
             "sorted_indices_flat": self._sorted_indices_flat,
             "band_offsets": self._band_offsets,
             "n_indexed": self._n_indexed,
             "is_indexed": self._is_indexed,
+            "needs_reindex": self._needs_reindex,
         }
         with open(path, "wb") as f:
             pickle.dump(state, f)
@@ -758,24 +778,32 @@ class LSHForest:
             weighted=state["weighted"],
         )
         instance._k = state["k"]
-        instance._signatures = state["signatures"]
-        instance._signatures_list = state["signatures_list"]
-        instance._hash_bands = state["hash_bands"]
-        instance._sorted_hashes_flat = state["sorted_hashes_flat"]
-        instance._sorted_indices_flat = state["sorted_indices_flat"]
-        instance._band_offsets = state["band_offsets"]
-        instance._n_indexed = state["n_indexed"]
-        instance._is_indexed = state["is_indexed"]
-        instance._needs_reindex = False
+        if state.get("format_version", 1) >= 2:
+            instance._index_signatures = state["index_signatures"]
+            instance._signatures = state["signatures"]
+            instance._signatures_list = state["signatures_list"]
+            instance._sorted_indices_flat = state["sorted_indices_flat"]
+            instance._band_offsets = state["band_offsets"]
+            instance._n_indexed = state["n_indexed"]
+            instance._is_indexed = state["is_indexed"]
+            instance._needs_reindex = state.get("needs_reindex", False)
+        else:
+            # Version 1 stored exact-band hash tables. Rebuild them as adaptive
+            # prefix trees rather than silently retaining the defective index.
+            parts: list[NDArray[np.uint64]] = []
+            if state.get("signatures") is not None:
+                parts.append(state["signatures"])
+            parts.extend(state.get("signatures_list", []))
+            instance._signatures_list = parts
+            instance.index()
 
         return instance
 
     def clear(self) -> None:
         """Clear all added data and computed indices."""
         self._signatures_list = []
+        self._index_signatures = None
         self._signatures = None
-        self._hash_bands = None
-        self._sorted_hashes_flat = None
         self._sorted_indices_flat = None
         self._band_offsets = None
         self._n_indexed = 0

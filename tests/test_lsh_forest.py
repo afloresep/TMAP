@@ -11,6 +11,7 @@ Tests cover:
 - Weighted MinHash support
 """
 
+import pickle
 import tempfile
 from pathlib import Path
 
@@ -68,7 +69,7 @@ class TestLSHForestInit:
         """Test default parameter values."""
         lsh = LSHForest()
         assert lsh.d == 128
-        assert lsh.l == 64  # default: d // 2 = 128 // 2
+        assert lsh.l == 8  # matches the original TMAP default
         assert lsh.size == 0
         assert not lsh.is_clean
 
@@ -195,6 +196,73 @@ class TestLSHForestIndex:
 
 class TestLSHForestQuery:
     """Tests for query methods."""
+
+    def test_query_adaptively_shortens_tree_prefixes(self):
+        """Candidates need not collide on a complete fixed-width band."""
+        query = np.array([10, 11, 12, 13, 20, 21, 22, 23], dtype=np.uint64)
+        signatures = np.array(
+            [
+                query,
+                [10, 11, 12, 99, 90, 91, 92, 93],  # tree 0, prefix length 3
+                [80, 81, 82, 83, 20, 21, 98, 99],  # tree 1, prefix length 2
+                [10, 70, 71, 72, 60, 61, 62, 63],  # tree 0, prefix length 1
+                [50, 51, 52, 53, 40, 41, 42, 43],  # no prefix collision
+            ],
+            dtype=np.uint64,
+        )
+        forest = LSHForest(d=8, l=2)
+        forest.batch_add(signatures)
+        forest.index()
+
+        candidates = forest.query(query, k=4)
+
+        assert candidates.tolist() == [0, 1, 2, 3]
+
+    def test_query_matches_adaptive_prefix_reference(self):
+        """Numba retrieval matches a small, direct implementation of C++ semantics."""
+        rng = np.random.default_rng(7)
+        signatures = rng.integers(0, 8, size=(60, 16), dtype=np.uint64)
+        forest = LSHForest(d=16, l=4)
+        forest.batch_add(signatures)
+        forest.index()
+
+        tree_orders = []
+        for tree in range(forest.l):
+            start = tree * forest._k
+            end = start + forest._k
+            tree_orders.append(
+                sorted(
+                    range(len(signatures)),
+                    key=lambda row, start=start, end=end: tuple(signatures[row, start:end]),
+                )
+            )
+
+        for query_id in (0, 17, 42):
+            query = signatures[query_id]
+            for limit in (1, 5, 20, 100):
+                expected = []
+                seen = set()
+                for prefix_length in range(forest._k, 0, -1):
+                    for tree, order in enumerate(tree_orders):
+                        start = tree * forest._k
+                        end = start + prefix_length
+                        for row in order:
+                            if np.array_equal(signatures[row, start:end], query[start:end]):
+                                if row not in seen:
+                                    expected.append(row)
+                                    seen.add(row)
+                                    if len(expected) == min(limit, len(signatures)):
+                                        break
+                        if len(expected) == min(limit, len(signatures)):
+                            break
+                    if len(expected) == min(limit, len(signatures)):
+                        break
+
+                np.testing.assert_array_equal(forest.query(query, limit), expected)
+
+    def test_query_requires_positive_k(self, indexed_forest, random_signatures):
+        with pytest.raises(ValueError, match="k must be positive"):
+            indexed_forest.query(random_signatures[0], k=0)
 
     def test_query_returns_candidates(self, indexed_forest, random_signatures):
         """Test that query returns candidate indices."""
@@ -403,6 +471,18 @@ class TestLSHForestStorage:
         with pytest.raises(ValueError, match="requires store=True"):
             lsh.get_knn_graph(k=5)
 
+    def test_store_false_still_builds_queryable_prefix_index(self):
+        signatures = np.array(
+            [[1, 2, 3, 4], [1, 2, 8, 9], [7, 6, 5, 4]],
+            dtype=np.uint64,
+        )
+        lsh = LSHForest(d=4, l=2, store=False)
+        lsh.batch_add(signatures)
+        lsh.index()
+
+        assert lsh.size == 3
+        assert lsh.query(signatures[0], k=2).tolist() == [0, 1]
+
 
 # =============================================================================
 # Persistence Tests
@@ -433,6 +513,34 @@ class TestLSHForestPersistence:
             result_orig = indexed_forest.query(random_signatures[0], k=5)
             result_loaded = loaded.query(random_signatures[0], k=5)
             np.testing.assert_array_equal(result_orig, result_loaded)
+
+    def test_load_rebuilds_legacy_exact_band_state(self, tmp_path):
+        signatures = np.array(
+            [[1, 2, 3, 4], [1, 2, 8, 9], [7, 6, 5, 4]],
+            dtype=np.uint64,
+        )
+        legacy_state = {
+            "d": 4,
+            "l": 2,
+            "k": 2,
+            "store": True,
+            "weighted": False,
+            "signatures": signatures,
+            "signatures_list": [],
+            "hash_bands": np.zeros((3, 2), dtype=np.uint64),
+            "sorted_hashes_flat": np.zeros(6, dtype=np.uint64),
+            "sorted_indices_flat": np.arange(6, dtype=np.int32),
+            "band_offsets": np.array([0, 3, 6], dtype=np.int64),
+            "n_indexed": 3,
+            "is_indexed": True,
+        }
+        path = tmp_path / "legacy-lsh.pkl"
+        with path.open("wb") as handle:
+            pickle.dump(legacy_state, handle)
+
+        loaded = LSHForest.load(str(path))
+
+        assert loaded.query(signatures[0], k=2).tolist() == [0, 1]
 
 
 # =============================================================================
@@ -487,6 +595,18 @@ class TestLSHForestWeighted:
         sig_b = np.ones((128, 2), dtype=np.uint64)
         dist = LSHForest.get_weighted_distance(sig_a, sig_b)
         assert dist == 1.0
+
+    def test_weighted_prefix_uses_both_signature_components(self):
+        signatures = np.empty((2, 4, 2), dtype=np.uint64)
+        signatures[0, :, 0] = 7
+        signatures[0, :, 1] = 1
+        signatures[1, :, 0] = 7
+        signatures[1, :, 1] = 99
+        forest = LSHForest(d=4, l=2, weighted=True)
+        forest.batch_add(signatures)
+        forest.index()
+
+        assert forest.query(signatures[0], k=2).tolist() == [0]
 
 
 # =============================================================================
@@ -641,6 +761,17 @@ class TestLSHForestIncrementalOperations:
 
         assert lsh.size == 0
         assert lsh.is_clean
+
+    def test_index_is_idempotent(self, random_signatures):
+        lsh = LSHForest(d=128, l=8)
+        lsh.batch_add(random_signatures)
+        lsh.index()
+        before = lsh.query(random_signatures[0], k=10)
+
+        lsh.index()
+
+        assert lsh.size == len(random_signatures)
+        np.testing.assert_array_equal(lsh.query(random_signatures[0], k=10), before)
 
     def test_query_empty_forest_returns_empty(self):
         """Querying empty forest should return empty results.

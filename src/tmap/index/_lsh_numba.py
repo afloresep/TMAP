@@ -149,6 +149,7 @@ def linear_scan_batch(
     candidate_counts: NDArray[np.int32],
     k: int,
     exclude_self: bool = True,
+    query_offset: int = 0,
 ) -> tuple[NDArray[np.int32], NDArray[np.float32]]:
     """
     Perform linear scan for multiple queries in parallel.
@@ -164,6 +165,8 @@ def linear_scan_batch(
         k: Number of nearest neighbors to return per query
         exclude_self: If True, candidate with index == query index is
             skipped (for self-kNN).  Set False for external queries.
+        query_offset: Global row offset of ``queries[0]`` for blocked
+            self-kNN construction.
 
     Returns:
         Tuple of:
@@ -187,7 +190,7 @@ def linear_scan_batch(
             cand_idx = candidate_indices[q, i]
             if cand_idx < 0:
                 cand_distances[i] = 2.0  # Invalid candidate
-            elif exclude_self and cand_idx == q:
+            elif exclude_self and cand_idx == q + query_offset:
                 cand_distances[i] = 2.0  # Exclude self
             else:
                 # Compute Jaccard distance
@@ -221,6 +224,7 @@ def linear_scan_batch_weighted(
     candidate_counts: NDArray[np.int32],
     k: int,
     exclude_self: bool = True,
+    query_offset: int = 0,
 ) -> tuple[NDArray[np.int32], NDArray[np.float32]]:
     """
     Perform linear scan for multiple weighted queries in parallel.
@@ -233,6 +237,8 @@ def linear_scan_batch_weighted(
         k: Number of nearest neighbors to return
         exclude_self: If True, candidate with index == query index is
             skipped (for self-kNN).  Set False for external queries.
+        query_offset: Global row offset of ``queries[0]`` for blocked
+            self-kNN construction.
 
     Returns:
         Tuple of (indices, distances) arrays
@@ -251,7 +257,7 @@ def linear_scan_batch_weighted(
         cand_distances = np.empty(n_cand, dtype=np.float32)
         for i in range(n_cand):
             cand_idx = candidate_indices[q, i]
-            if cand_idx < 0 or (exclude_self and cand_idx == q):
+            if cand_idx < 0 or (exclude_self and cand_idx == q + query_offset):
                 cand_distances[i] = 2.0
             else:
                 matches = 0
@@ -278,282 +284,246 @@ def linear_scan_batch_weighted(
     return result_indices, result_distances
 
 
-@numba.njit(parallel=True, cache=True)
-def compute_hash_bands(
+@numba.njit(cache=True, inline="always")
+def _compare_prefix(
     signatures: NDArray[np.uint64],
-    l: int,
-    k: int,
-) -> NDArray[np.uint64]:
-    """
-    Compute L hash bands for all N signatures in parallel.
-
-    Each band hashes k consecutive values from the signature.
-    This is the core LSH operation - similar signatures will have
-    matching bands with high probability.
-
-    Args:
-        signatures: (N, d) uint64 array of MinHash signatures
-        l: Number of bands (prefix trees)
-        k: Band width (d // l)
-
-    Returns:
-        hash_bands: (N, l) uint64 array of hash values per band
-    """
-    n = signatures.shape[0]
-    hash_bands = np.empty((n, l), dtype=np.uint64)
-
-    for i in prange(n):
-        for band in range(l):
-            start = band * k
-            end = start + k
-            # Inline hash computation for speed
-            GOLDEN = np.uint64(0x9E3779B97F4A7C15)
-            h = np.uint64(0)
-            for j in range(start, end):
-                v = signatures[i, j]
-                v ^= v >> np.uint64(33)
-                v *= GOLDEN
-                v ^= v >> np.uint64(33)
-                h ^= v + GOLDEN + (h << np.uint64(6)) + (h >> np.uint64(2))
-            hash_bands[i, band] = h
-
-    return hash_bands
+    row: int,
+    query: NDArray[np.uint64],
+    start: int,
+    prefix_length: int,
+) -> int:
+    """Compare one stored band prefix with a query prefix lexicographically."""
+    for offset in range(prefix_length):
+        stored = signatures[row, start + offset]
+        wanted = query[start + offset]
+        if stored < wanted:
+            return -1
+        if stored > wanted:
+            return 1
+    return 0
 
 
-@numba.njit(parallel=True, cache=True)
-def compute_hash_bands_weighted(
+@numba.njit(cache=True, inline="always")
+def _compare_prefix_weighted(
     signatures: NDArray[np.uint64],
-    l: int,
-    k: int,
-) -> NDArray[np.uint64]:
-    """
-    Compute L hash bands for weighted MinHash signatures.
-
-    For weighted MinHash, only uses the first column (k values) for LSH looku
-
-    Args:
-        signatures: (N, d, 2) uint64 array of weighted MinHash signatures
-        l: Number of bands
-        k: Band width
-
-    Returns:
-        hash_bands: (N, l) uint64 array of hash values
-    """
-    n = signatures.shape[0]
-    hash_bands = np.empty((n, l), dtype=np.uint64)
-
-    for i in prange(n):
-        for band in range(l):
-            start = band * k
-            end = start + k
-            GOLDEN = np.uint64(0x9E3779B97F4A7C15)
-            h = np.uint64(0)
-            for j in range(start, end):
-                # Only use first column for weighted MinHash LSH
-                v = signatures[i, j, 0]
-                v ^= v >> np.uint64(33)
-                v *= GOLDEN
-                v ^= v >> np.uint64(33)
-                h ^= v + GOLDEN + (h << np.uint64(6)) + (h >> np.uint64(2))
-            hash_bands[i, band] = h
-
-    return hash_bands
+    row: int,
+    query: NDArray[np.uint64],
+    start: int,
+    prefix_length: int,
+) -> int:
+    """Compare weighted MinHash prefixes, including both values per permutation."""
+    for offset in range(prefix_length):
+        for component in range(2):
+            stored = signatures[row, start + offset, component]
+            wanted = query[start + offset, component]
+            if stored < wanted:
+                return -1
+            if stored > wanted:
+                return 1
+    return 0
 
 
-@numba.njit(cache=True)
-def _binary_search_left(arr: NDArray[np.uint64], value: np.uint64) -> int:
-    """Binary search for leftmost position where arr[i] >= value."""
-    lo, hi = 0, len(arr)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if arr[mid] < value:
-            lo = mid + 1
-        else:
-            hi = mid
-    return lo
-
-
-@numba.njit(cache=True)
-def _binary_search_right(arr: NDArray[np.uint64], value: np.uint64) -> int:
-    """Binary search for leftmost position where arr[i] > value."""
-    lo, hi = 0, len(arr)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if arr[mid] <= value:
-            lo = mid + 1
-        else:
-            hi = mid
-    return lo
-
-
-@numba.njit(cache=True)
-def query_single_band(
-    query_hash: np.uint64,
-    sorted_hashes: NDArray[np.uint64],
+@numba.njit(cache=True, inline="always")
+def _prefix_range(
+    signatures: NDArray[np.uint64],
     sorted_indices: NDArray[np.int32],
-) -> NDArray[np.int32]:
-    """
-    Query a single band's hash table using binary search.
+    query: NDArray[np.uint64],
+    start: int,
+    prefix_length: int,
+) -> tuple[int, int]:
+    """Return the half-open range of rows equal to an unweighted prefix."""
+    lo = 0
+    hi = len(sorted_indices)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        comparison = _compare_prefix(signatures, sorted_indices[mid], query, start, prefix_length)
+        if comparison < 0:
+            lo = mid + 1
+        else:
+            hi = mid
+    left = lo
 
-    Args:
-        query_hash: Hash value of the query's band
-        sorted_hashes: Sorted array of hash values for this band
-        sorted_indices: Corresponding signature indices (sorted by hash)
-
-    Returns:
-        Array of matching signature indices (may be empty)
-    """
-    if len(sorted_hashes) == 0:
-        return np.empty(0, dtype=np.int32)
-
-    # Find range of matching hashes
-    left = _binary_search_left(sorted_hashes, query_hash)
-    right = _binary_search_right(sorted_hashes, query_hash)
-
-    if left >= right:
-        return np.empty(0, dtype=np.int32)
-
-    return sorted_indices[left:right].copy()
+    hi = len(sorted_indices)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        comparison = _compare_prefix(signatures, sorted_indices[mid], query, start, prefix_length)
+        if comparison <= 0:
+            lo = mid + 1
+        else:
+            hi = mid
+    return left, lo
 
 
-@numba.njit(cache=True)
-def query_lsh_forest_single(
-    query_bands: NDArray[np.uint64],
-    sorted_hashes_list: tuple,
-    sorted_indices_list: tuple,
-    max_results: int,
-) -> NDArray[np.int32]:
-    """
-    Query LSH forest for a single signature.
-
-    Searches all bands and collects unique candidates up to max_results.
-    Uses exact band-hash matching — candidate recall depends on band width
-    (k = d/l) and data similarity.
-
-    Args:
-        query_bands: (l,) array of hash values for query
-        sorted_hashes_list: Tuple of L sorted hash arrays
-        sorted_indices_list: Tuple of L sorted index arrays
-        max_results: Maximum number of candidates to return
-
-    Returns:
-        Array of candidate indices (unique, up to max_results)
-    """
-    l = len(query_bands)
-
-    # Collect candidates from all bands
-    # Use a fixed-size array and track seen indices
-    candidates = np.empty(max_results * l, dtype=np.int32)
-    n_candidates = 0
-
-    # Simple seen tracking - for small result sets this is fast enough
-    seen = np.zeros(max_results * l * 2, dtype=np.int32)
-    seen_count = 0
-
-    for band in range(l):
-        matches = query_single_band(
-            query_bands[band],
-            sorted_hashes_list[band],
-            sorted_indices_list[band],
+@numba.njit(cache=True, inline="always")
+def _prefix_range_weighted(
+    signatures: NDArray[np.uint64],
+    sorted_indices: NDArray[np.int32],
+    query: NDArray[np.uint64],
+    start: int,
+    prefix_length: int,
+) -> tuple[int, int]:
+    """Return the half-open range of rows equal to a weighted prefix."""
+    lo = 0
+    hi = len(sorted_indices)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        comparison = _compare_prefix_weighted(
+            signatures, sorted_indices[mid], query, start, prefix_length
         )
+        if comparison < 0:
+            lo = mid + 1
+        else:
+            hi = mid
+    left = lo
 
-        for j in range(len(matches)):
-            idx = matches[j]
-            # Check if already seen (linear search - ok for small sets)
-            is_seen = False
-            for s in range(seen_count):
-                if seen[s] == idx:
-                    is_seen = True
-                    break
+    hi = len(sorted_indices)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        comparison = _compare_prefix_weighted(
+            signatures, sorted_indices[mid], query, start, prefix_length
+        )
+        if comparison <= 0:
+            lo = mid + 1
+        else:
+            hi = mid
+    return left, lo
 
-            if not is_seen:
-                if n_candidates < max_results:
-                    candidates[n_candidates] = idx
-                    n_candidates += 1
-                if seen_count < len(seen):
-                    seen[seen_count] = idx
-                    seen_count += 1
 
-                if n_candidates >= max_results:
-                    return candidates[:n_candidates]
+@numba.njit(cache=True, inline="always")
+def _seen_or_insert(seen: NDArray[np.int32], value: int) -> bool:
+    """Insert into a small open-addressed set; return whether it was present."""
+    mask = len(seen) - 1
+    slot = (value * 2654435761) & mask
+    while True:
+        current = seen[slot]
+        if current == value:
+            return True
+        if current == -1:
+            seen[slot] = value
+            return False
+        slot = (slot + 1) & mask
 
-    return candidates[:n_candidates]
+
+@numba.njit(cache=True, inline="always")
+def _seen_table_size(max_results: int) -> int:
+    """Choose a power-of-two hash table with a load factor at most 0.5."""
+    size = 2
+    target = max_results * 2
+    while size < target:
+        size *= 2
+    return size
 
 
 @numba.njit(parallel=True, cache=True)
 def query_lsh_forest_batch(
-    query_bands: NDArray[np.uint64],
-    sorted_hashes_flat: NDArray[np.uint64],
+    queries: NDArray[np.uint64],
+    signatures: NDArray[np.uint64],
     sorted_indices_flat: NDArray[np.int32],
     band_offsets: NDArray[np.int64],
+    band_width: int,
     max_results: int,
 ) -> tuple[NDArray[np.int32], NDArray[np.int32]]:
+    """Retrieve candidates using adaptive LSH-Forest prefix backoff.
+
+    Every tree owns a disjoint band of ``band_width`` MinHash values. Rows are
+    sorted lexicographically by their complete band. Queries first retrieve
+    exact full-band matches, then shorten the prefix one value at a time until
+    ``max_results`` unique candidates have been collected or the one-value
+    prefixes are exhausted. This mirrors the original TMAP C++ LSH Forest.
     """
-    Query LSH forest for multiple signatures in parallel.
+    n_queries = queries.shape[0]
+    n_trees = len(band_offsets) - 1
+    n_indexed = signatures.shape[0]
+    result_limit = min(max_results, n_indexed)
 
-    Uses flattened arrays for Numba compatibility.
-
-    Args:
-        query_bands: (n_queries, l) array of hash values
-        sorted_hashes_flat: Flattened sorted hashes for all bands
-        sorted_indices_flat: Flattened sorted indices for all bands
-        band_offsets: (l+1,) offsets into flat arrays for each band
-        max_results: Maximum candidates per query
-
-    Returns:
-        candidates: (n_queries, max_results) padded with -1
-        counts: (n_queries,) number of valid candidates per query
-    """
-    n_queries = query_bands.shape[0]
-    l = query_bands.shape[1]
-
-    candidates = np.full((n_queries, max_results), -1, dtype=np.int32)
+    candidates = np.full((n_queries, result_limit), -1, dtype=np.int32)
     counts = np.zeros(n_queries, dtype=np.int32)
+    table_size = _seen_table_size(result_limit)
 
     for q in prange(n_queries):
-        # Track seen indices for this query
-        seen = np.zeros(max_results * 2, dtype=np.int32)
-        seen_count = 0
-        n_cand = 0
+        seen = np.full(table_size, -1, dtype=np.int32)
+        n_candidates = 0
 
-        for band in range(l):
-            # Get this band's slice of the flat arrays
-            start = band_offsets[band]
-            end = band_offsets[band + 1]
-            band_hashes = sorted_hashes_flat[start:end]
-            band_indices = sorted_indices_flat[start:end]
+        for prefix_length in range(band_width, 0, -1):
+            for tree in range(n_trees):
+                offset = band_offsets[tree]
+                end = band_offsets[tree + 1]
+                sorted_indices = sorted_indices_flat[offset:end]
+                start = tree * band_width
+                left, right = _prefix_range(
+                    signatures,
+                    sorted_indices,
+                    queries[q],
+                    start,
+                    prefix_length,
+                )
 
-            query_hash = query_bands[q, band]
-
-            # Binary search for matching range
-            left = _binary_search_left(band_hashes, query_hash)
-            right = _binary_search_right(band_hashes, query_hash)
-
-            # Add unique matches
-            for i in range(left, right):
-                idx = band_indices[i]
-
-                # Check if seen
-                is_seen = False
-                for s in range(seen_count):
-                    if seen[s] == idx:
-                        is_seen = True
-                        break
-
-                if not is_seen:
-                    if n_cand < max_results:
-                        candidates[q, n_cand] = idx
-                        n_cand += 1
-                    if seen_count < len(seen):
-                        seen[seen_count] = idx
-                        seen_count += 1
-
-                    if n_cand >= max_results:
-                        break
-
-            if n_cand >= max_results:
+                for position in range(left, right):
+                    candidate = int(sorted_indices[position])
+                    if not _seen_or_insert(seen, candidate):
+                        candidates[q, n_candidates] = candidate
+                        n_candidates += 1
+                        if n_candidates == result_limit:
+                            break
+                if n_candidates == result_limit:
+                    break
+            if n_candidates == result_limit:
                 break
 
-        counts[q] = n_cand
+        counts[q] = n_candidates
+
+    return candidates, counts
+
+
+@numba.njit(parallel=True, cache=True)
+def query_lsh_forest_batch_weighted(
+    queries: NDArray[np.uint64],
+    signatures: NDArray[np.uint64],
+    sorted_indices_flat: NDArray[np.int32],
+    band_offsets: NDArray[np.int64],
+    band_width: int,
+    max_results: int,
+) -> tuple[NDArray[np.int32], NDArray[np.int32]]:
+    """Weighted adaptive-prefix retrieval using both values per permutation."""
+    n_queries = queries.shape[0]
+    n_trees = len(band_offsets) - 1
+    n_indexed = signatures.shape[0]
+    result_limit = min(max_results, n_indexed)
+
+    candidates = np.full((n_queries, result_limit), -1, dtype=np.int32)
+    counts = np.zeros(n_queries, dtype=np.int32)
+    table_size = _seen_table_size(result_limit)
+
+    for q in prange(n_queries):
+        seen = np.full(table_size, -1, dtype=np.int32)
+        n_candidates = 0
+
+        for prefix_length in range(band_width, 0, -1):
+            for tree in range(n_trees):
+                offset = band_offsets[tree]
+                end = band_offsets[tree + 1]
+                sorted_indices = sorted_indices_flat[offset:end]
+                start = tree * band_width
+                left, right = _prefix_range_weighted(
+                    signatures,
+                    sorted_indices,
+                    queries[q],
+                    start,
+                    prefix_length,
+                )
+
+                for position in range(left, right):
+                    candidate = int(sorted_indices[position])
+                    if not _seen_or_insert(seen, candidate):
+                        candidates[q, n_candidates] = candidate
+                        n_candidates += 1
+                        if n_candidates == result_limit:
+                            break
+                if n_candidates == result_limit:
+                    break
+            if n_candidates == result_limit:
+                break
+
+        counts[q] = n_candidates
 
     return candidates, counts

@@ -39,11 +39,10 @@ def _resolve_ann_backend(
 def _select_lsh_l(d: int, n_samples: int) -> int:
     """Auto-select number of LSH prefix trees based on d and dataset size.
 
-    The LSH band width (k_band = d // l) controls discrimination:
-    - Short bands (small k_band): high recall but many false positives.
-      At large N, the candidate budget (k*kc) overflows with random matches.
-    - Long bands (large k_band): precise candidates but low recall.
-      At small N, too few collisions to find any neighbors.
+    Queries adaptively shorten each tree prefix until their candidate budget is
+    filled. The full band width (``k_band = d // l``) therefore controls the
+    number of selective prefix depths available, rather than imposing an exact
+    full-band collision requirement.
 
     We use k_band=4 up to ~1M points (tested optimal for 100k molecules),
     then gradually increase for larger datasets where the collision pool
