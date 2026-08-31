@@ -8,7 +8,7 @@ This guide explains how LSH Forest works in TMAP and helps you choose the right 
 
 LSH Forest is an **index structure** for fast approximate nearest neighbor search. It takes MinHash signatures and enables rapid similarity queries.
 
-**The key insight:** Instead of comparing every item to every other item (O(n²)), LSH Forest uses clever hashing to find similar items in O(n log n) time.
+**The key insight:** Instead of comparing every item to every other item (O(n²)), LSH Forest uses sorted MinHash prefixes to find likely neighbors efficiently.
 
 ```txt
 MinHash Signatures
@@ -30,7 +30,7 @@ mh = MinHash(num_perm=128, seed=42)
 signatures = mh.batch_from_binary_array(fingerprints)
 
 # 2. Build the index
-lsh = LSHForest(d=128, l=64)  # d must match num_perm
+lsh = LSHForest(d=128, l=16)  # d must match num_perm
 lsh.batch_add(signatures)
 lsh.index()  # Don't forget this!
 
@@ -42,28 +42,29 @@ knn = lsh.get_knn_graph(k=20, kc=50)
 
 ## How LSH Forest Works (Conceptually)
 
-Think of LSH Forest as organizing items into **buckets** based on their hash values.
+Think of LSH Forest as maintaining several sorted indexes over different parts of each signature.
 
-### The Bucket Analogy
+### Adaptive Prefix Search
 
-1. **Hashing**: Each signature is split into `l` bands. Each band produces a hash value.
-2. **Bucketing**: Items with the same band hash go into the same bucket.
-3. **Querying**: To find neighbors, look in buckets where the query item lands.
+1. **Split**: Each signature is split into `l` consecutive bands.
+2. **Sort**: Each band becomes a prefix tree represented by lexicographically sorted row IDs.
+3. **Query**: Search for complete-band matches first. If there are too few candidates, shorten every tree prefix by one MinHash value and repeat.
+4. **Refine**: Rank the collected candidates by their full MinHash-signature distance.
 
 ```txt
 Signature (128 values)
     ↓
-Split into l=8 bands (16 values each)
+Split into l=16 bands (8 values each)
     ↓
-Band 0: hash → bucket A
-Band 1: hash → bucket B
-Band 2: hash → bucket C
+Tree 0: sort values 0..7
+Tree 1: sort values 8..15
+Tree 2: sort values 16..23
 ...
     ↓
-Query: check all buckets, collect candidates
+Query: try prefix lengths 8, 7, ... 1 until enough candidates exist
 ```
 
-**Why multiple bands?** More bands = more chances to find similar items, even if they don't match perfectly in any single band.
+**Why adaptive prefixes?** A strict eight-value collision is often too rare. Backoff preserves selective matches when they exist but still returns useful candidates for moderately similar data.
 
 ---
 
@@ -82,31 +83,31 @@ lsh = LSHForest(d=128)      # d=128 to match
 
 Controls the **recall vs speed** tradeoff.
 
-| `l` Value | Recall | Speed | Memory | Best For |
-|-----------|--------|-------|--------|----------|
-| 8 | Low | Fastest | Low | Quick exploration |
-| 32 | Medium | Fast | Medium | Small datasets (<10k) |
-| 64 | Good | Good | Good | **Medium datasets (10k-100k)** |
-| 128 | High | Slower | High | Large datasets (>100k) |
+| Configuration | Band width | Tradeoff |
+|---------------|------------|----------|
+| `d=128, l=8` | 16 | Legacy TMAP default; lowest index memory |
+| `d=128, l=16` | 8 | Good compatibility/quality starting point |
+| `d=128, l=32` | 4 | More trees and memory; useful for difficult set data |
+| `d=128, l=64` | 2 | Aggressive, usually unnecessary with prefix backoff |
 
-**Rule of thumb:** Start with `l=64`. Increase if you're missing neighbors.
+**Rule of thumb:** Start with `l=d//8` and tune `kc` first. More trees consume memory linearly and are no longer required merely to avoid empty exact-band buckets.
 
 ```python
 # For a 50k molecule dataset
-lsh = LSHForest(d=128, l=64)
+lsh = LSHForest(d=128, l=16)
 ```
 
 ### `store` - Signature Storage
 
-Controls whether signatures are kept in memory after indexing.
+Controls whether signature-dependent refinement and inspection methods are exposed. Adaptive prefix lookup itself must retain the indexed band values, so `store=False` no longer removes the core signature memory.
 
-| Value | Memory | Capabilities |
-|-------|--------|--------------|
-| `True` (default) | Higher | Full functionality: queries, distances, k-NN graph |
-| `False` | Lower | Only LSH queries (no linear scan, no k-NN graph) |
+| Value | Capabilities |
+|-------|--------------|
+| `True` (default) | Full functionality: queries, distances, k-NN graph |
+| `False` | Prefix queries only; no linear scan, distances, or k-NN graph |
 
 ```python
-# Memory-constrained: only need approximate queries
+# Prefix candidate queries only
 lsh = LSHForest(d=128, store=False)
 
 # Full functionality (recommended)
@@ -347,7 +348,7 @@ knn = lsh.get_knn_graph(k=20, kc=50)
 **What's saved:**
 
 - All signatures
-- Hash band structures
+- Sorted prefix-tree row IDs
 - Configuration (d, l, weighted, store)
 
 ---
@@ -358,7 +359,7 @@ knn = lsh.get_knn_graph(k=20, kc=50)
 
 ```python
 # Build index (expensive)
-lsh = LSHForest(d=128, l=64)
+lsh = LSHForest(d=128, l=16)
 lsh.batch_add(all_signatures)
 lsh.index()
 lsh.save("index.pkl")
@@ -372,7 +373,7 @@ knn = lsh.get_knn_graph(k=20, kc=50)
 
 ```python
 # Initial index
-lsh = LSHForest(d=128, l=64)
+lsh = LSHForest(d=128, l=16)
 lsh.batch_add(initial_signatures)
 lsh.index()
 
@@ -388,7 +389,7 @@ knn = lsh.get_knn_graph(k=20, kc=50)
 
 ```python
 # Build index of known compounds
-lsh = LSHForest(d=128, l=64)
+lsh = LSHForest(d=128, l=16)
 lsh.batch_add(known_signatures)
 lsh.index()
 
@@ -527,14 +528,14 @@ knn2 = lsh.get_knn_graph(k=20, kc=50)
 knn3 = lsh.get_knn_graph(k=30, kc=100)
 ```
 
-### 3. Tune l Based on Dataset Size
+### 3. Tune Candidate Budget Before Adding Trees
 
 ```python
-# Small dataset: lower l is fine
-lsh = LSHForest(d=128, l=32)  # < 10k points
+# Compatibility-oriented starting point
+lsh = LSHForest(d=128, l=16)
 
-# Large dataset: higher l for better recall
-lsh = LSHForest(d=128, l=128)  # > 100k points
+# Search more candidates before increasing index memory
+knn = lsh.get_knn_graph(k=20, kc=100)
 ```
 
 ---
@@ -556,7 +557,7 @@ mh = MinHash(num_perm=128, seed=42)
 signatures = mh.batch_from_binary_array(fps)
 
 # 3. Build LSH Forest
-lsh = LSHForest(d=128, l=64)
+lsh = LSHForest(d=128, l=16)
 lsh.batch_add(signatures)
 lsh.index()
 
