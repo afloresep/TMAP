@@ -175,4 +175,22 @@ pytest -v
 
 MIT License; see [LICENSE](LICENSE) for details.
 
-Based on the original [TMAP](https://github.com/reymond-group/tmap) by Daniel Probst and Jean-Louis Reymond.
+## Citation
+
+If you use TMAP2 in your research, please cite:
+
+> **From Proteins and Molecules to Cats and Dogs: Visualization as Scalable Minimum Spanning Trees**  
+> Alejandro Flores Sepúlveda, Maarten Boneschansker, Daniel Probst, Jean-Louis Reymond  
+> *ChemRxiv*, 2026.  
+> [https://doi.org/10.26434/chemrxiv.15008307/v1](https://doi.org/10.26434/chemrxiv.15008307/v1)
+
+```bibtex
+@article{floressepulveda2026tmap,
+  title   = {From Proteins and Molecules to Cats and Dogs: Visualization as Scalable Minimum Spanning Trees},
+  author  = {Flores Sepúlveda, Alejandro and Boneschansker, Maarten and Probst, Daniel and Reymond, Jean-Louis},
+  year    = {2026},
+  doi     = {10.26434/chemrxiv.15008307/v1},
+  url     = {https://doi.org/10.26434/chemrxiv.15008307/v1},
+  note    = {ChemRxiv preprint}
+}
+```
